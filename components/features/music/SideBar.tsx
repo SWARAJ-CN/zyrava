@@ -768,7 +768,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
               )}
               <div className="flex flex-none items-center gap-1">
                 {canInstall ? (
-                  <DockIcon label="Install app" onClick={() => void install()}>
+                  <DockIcon label="Download the app" onClick={() => void install()}>
                     <Icon name="download" className="size-4" strokeWidth={1.9} />
                   </DockIcon>
                 ) : null}
@@ -829,7 +829,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
               </Link>
             ) : null}
             {canInstall ? (
-              <DockIcon label="Install app" onClick={() => void install()}>
+              <DockIcon label="Download the app" onClick={() => void install()}>
                 <Icon name="download" className="size-4" strokeWidth={1.9} />
               </DockIcon>
             ) : null}

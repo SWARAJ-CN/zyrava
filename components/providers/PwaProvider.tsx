@@ -5,28 +5,45 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
 
 /** The event Chrome fires when the app meets its install criteria. */
 type InstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
+  prompt: () => Promise<{ outcome?: "accepted" | "dismissed" | "unsupported" }>;
 };
 
 interface PwaApi {
   /** Ready to install; the browser holds `beforeinstallprompt` back for us. */
   canInstall: boolean;
+  /** Running as its own app on the device rather than as a tab in a browser. */
+  installed: boolean;
+  /** Install touched, waiting on the device to confirm it. */
+  installing: boolean;
   install: () => Promise<void>;
 }
 
 const PwaContext = createContext<PwaApi>({
   canInstall: false,
+  installed: false,
+  installing: false,
   install: async () => {},
 });
 
 export function usePwa(): PwaApi {
   return useContext(PwaContext);
+}
+
+/** Every engine says "this is the installed app" a little differently. */
+function readInstalled(): boolean {
+  if (typeof window === "undefined") return false;
+  if ((window.navigator as Navigator & { standalone?: boolean }).standalone === true) return true;
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.matchMedia("(display-mode: minimal-ui)").matches
+  );
 }
 
 /**
@@ -37,6 +54,8 @@ export function usePwa(): PwaApi {
  */
 export function PwaProvider({ children }: { children: ReactNode }) {
   const [prompt, setPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(readInstalled);
+  const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") return;
@@ -53,11 +72,19 @@ export function PwaProvider({ children }: { children: ReactNode }) {
       event.preventDefault();
       setPrompt(event as InstallPromptEvent);
     };
-    const onInstalled = () => setPrompt(null);
+    const onInstalled = () => {
+      setPrompt(null);
+      setInstalling(false);
+      setInstalled(true);
+    };
 
+    const standalone = window.matchMedia("(display-mode: standalone)");
+    const onMode = () => setInstalled(readInstalled());
+    standalone.addEventListener("change", onMode);
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
     return () => {
+      standalone.removeEventListener("change", onMode);
       window.removeEventListener("beforeinstallprompt", onPrompt);
       window.removeEventListener("appinstalled", onInstalled);
     };
@@ -65,13 +92,17 @@ export function PwaProvider({ children }: { children: ReactNode }) {
 
   const install = useCallback(async () => {
     if (!prompt) return;
-    await prompt.prompt();
-    setPrompt(null);
+    setInstalling(true);
+    const choice = await prompt.prompt();
+    // Turning the dialog down ends the flow; accepting it runs until the
+    // device reports the app is really there.
+    if (choice?.outcome !== "accepted") setInstalling(false);
   }, [prompt]);
 
-  return (
-    <PwaContext.Provider value={{ canInstall: Boolean(prompt), install }}>
-      {children}
-    </PwaContext.Provider>
+  const value = useMemo<PwaApi>(
+    () => ({ canInstall: Boolean(prompt), installed, installing, install }),
+    [prompt, installed, installing, install]
   );
+
+  return <PwaContext.Provider value={value}>{children}</PwaContext.Provider>;
 }

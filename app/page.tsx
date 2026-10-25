@@ -16,6 +16,7 @@ import { LikedView } from "@/components/features/music/LikedView";
 import { DownloadsView, OfflineView } from "@/components/features/music/DeviceViews";
 import { SaveToDevice } from "@/components/features/music/SongRows";
 import { ImportSongsModal } from "@/components/features/music/ImportSongsModal";
+import { InstallModal } from "@/components/features/music/InstallModal";
 import { PlaylistStrip } from "@/components/features/music/PlaylistStrip";
 import { VIBES } from "@/components/features/music/filters";
 import { REGIONS } from "@/components/features/music/regions";
@@ -1213,6 +1214,7 @@ export default function MusicPage() {
       ) : null}
 
       <ImportSongsModal open={importOpen} onClose={() => setImportOpen(false)} />
+      <InstallModal />
     </div>
   );
 }

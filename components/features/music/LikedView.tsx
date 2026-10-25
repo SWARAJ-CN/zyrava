@@ -20,7 +20,7 @@ export function LikedView() {
   const { liked } = useLibrary();
   const { startQueue, shuffle, toggleShuffle } = useMusicPlayer();
   const { toast } = useToast();
-  const { savedIds, progress, saveAll } = useOffline();
+  const { savedIds, progress, saving, saveAll } = useOffline();
 
   const playAll = () => {
     if (!liked.length) {
@@ -47,7 +47,13 @@ export function LikedView() {
 
   const length = formatRuntime(totalSeconds(liked));
   const allSaved = liked.length > 0 && liked.every((song) => savedIds.has(song.id));
-  const saving = Object.keys(progress).length > 0;
+
+  /** Songs finished, plus how far the one still coming through has got. */
+  const active = saving ? Object.values(progress)[0] : undefined;
+  const fraction = active && active.total > 0 ? active.loaded / active.total : 0;
+  const percent = saving
+    ? Math.min(100, Math.round(((saving.done + fraction) / saving.total) * 100))
+    : 0;
 
   return (
     <section className="mt-8">
@@ -73,7 +79,7 @@ export function LikedView() {
         </OutlineAction>
         <OutlineAction
           onClick={() => void saveAll(liked)}
-          disabled={!liked.length || allSaved}
+          disabled={!liked.length || allSaved || saving !== null}
           active={allSaved}
           label={
             allSaved
@@ -87,6 +93,24 @@ export function LikedView() {
           />
         </OutlineAction>
       </CollectionHero>
+
+      {saving ? (
+        <div className="mt-3 rounded-xl border border-separator bg-surface px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3 text-[11px]">
+            <span className="text-muted">
+              Saving song {Math.min(saving.done + 1, saving.total)} of {saving.total} on this
+              device
+            </span>
+            <span className="font-semibold tabular-nums text-foreground">{percent}%</span>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-secondary">
+            <span
+              className="block h-full rounded-full bg-accent transition-[width] duration-200"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 rounded-xl border border-separator bg-surface p-2 sm:p-3">
         {liked.length ? (

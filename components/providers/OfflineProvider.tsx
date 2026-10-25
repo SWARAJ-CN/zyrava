@@ -48,6 +48,8 @@ interface OfflineValue {
   canPickFolder: boolean;
   savedIds: Set<string>;
   progress: Record<string, SaveProgress>;
+  /** How far through a bulk save we are, beyond the one song in `progress`. */
+  saving: ImportProgress | null;
   importing: ImportProgress | null;
   save: (song: Song) => Promise<void>;
   saveAll: (songs: Song[]) => Promise<void>;
@@ -88,6 +90,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [canPickFolder, setCanPickFolder] = useState(false);
   const [progress, setProgress] = useState<Record<string, SaveProgress>>({});
+  const [saving, setSaving] = useState<ImportProgress | null>(null);
   const [importing, setImporting] = useState<ImportProgress | null>(null);
 
   const savesRef = useRef(new Map<string, AbortController>());
@@ -232,11 +235,14 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       }
       let savedCount = 0;
       let failed = 0;
-      for (const song of pending) {
-        const outcome = await saveOne(song, true);
+      setSaving({ done: 0, total: pending.length });
+      for (let i = 0; i < pending.length; i += 1) {
+        const outcome = await saveOne(pending[i], true);
+        setSaving({ done: i + 1, total: pending.length });
         if (outcome === "saved") savedCount += 1;
         if (outcome === "failed") failed += 1;
       }
+      setSaving(null);
       const tail = failed ? ` · ${failed} couldn't be saved` : "";
       if (savedCount) {
         success("Saved on this device", `${savedCount} ${savedCount === 1 ? "song" : "songs"}${tail}`);
@@ -408,6 +414,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       canPickFolder,
       savedIds,
       progress,
+      saving,
       importing,
       save,
       saveAll,
@@ -425,6 +432,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       canPickFolder,
       savedIds,
       progress,
+      saving,
       importing,
       save,
       saveAll,

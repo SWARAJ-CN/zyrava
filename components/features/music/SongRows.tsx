@@ -22,6 +22,32 @@ const ROW_ACTION =
 /** In the table variant the actions wait for the pointer, until one is engaged. */
 const ROW_UNTIL_TOUCHED = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100";
 
+/**
+ * How much of a song has reached the device so far. The browser reports bytes,
+ * so the arc is the only honest reading of a save in progress.
+ */
+function SaveRing({ value }: { value: number }) {
+  const radius = 8;
+  const ring = 2 * Math.PI * radius;
+  const share = Math.min(1, Math.max(0, value));
+  return (
+    <svg viewBox="0 0 20 20" className="size-5 -rotate-90" aria-hidden>
+      <circle cx="10" cy="10" r={radius} fill="none" strokeWidth="2" className="stroke-separator" />
+      <circle
+        cx="10"
+        cy="10"
+        r={radius}
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        className="stroke-accent transition-[stroke-dashoffset] duration-150"
+        strokeDasharray={ring}
+        strokeDashoffset={ring * (1 - share)}
+      />
+    </svg>
+  );
+}
+
 /** Column captions for the table variant — sits directly above <SongRows table>. */
 export function SongTableHead({ album = true }: { album?: boolean }) {
   return (
@@ -45,6 +71,8 @@ export function SaveToDevice({ song, table = false }: { song: Song; table?: bool
   const { savedIds, progress, save, removeSaved } = useOffline();
   const saved = savedIds.has(song.id);
   const busy = progress[song.id];
+  const share = busy && busy.total > 0 ? busy.loaded / busy.total : 0;
+  const percent = Math.min(100, Math.round(share * 100));
 
   return (
     <button
@@ -54,15 +82,27 @@ export function SaveToDevice({ song, table = false }: { song: Song; table?: bool
       aria-label={
         saved ? `Take ${song.title} off this device` : `Save ${song.title} on this device`
       }
-      title={busy ? "Saving…" : saved ? "On this device" : "Save on this device"}
+      title={
+        busy
+          ? busy.total > 0
+            ? `Saving… ${percent}%`
+            : "Saving…"
+          : saved
+            ? "On this device"
+            : "Save on this device"
+      }
       className={cn(
         ROW_ACTION,
-        saved && "text-brand",
-        table && !saved && ROW_UNTIL_TOUCHED
+        (saved || busy) && "text-brand",
+        table && !saved && !busy && ROW_UNTIL_TOUCHED
       )}
     >
       {busy ? (
-        <Icon name="loader" className="size-4 motion-safe:animate-spin" />
+        busy.total > 0 ? (
+          <SaveRing value={share} />
+        ) : (
+          <Icon name="loader" className="size-4 motion-safe:animate-spin" />
+        )
       ) : (
         <Icon name="download" className="size-4" />
       )}
