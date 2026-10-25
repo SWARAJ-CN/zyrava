@@ -264,7 +264,7 @@ export function PlaylistsView({ query }: { query: string }) {
                   }}
                   aria-label={`Delete playlist ${playlist.name}`}
                   title="Delete playlist"
-                  className="absolute end-2 top-2 grid size-8 place-items-center rounded-full bg-black/50 text-white/80 opacity-0 backdrop-blur transition-opacity hover:bg-black/70 hover:text-white group-hover:opacity-100 focus-visible:opacity-100"
+                  className="absolute end-2 top-2 grid size-8 place-items-center rounded-full bg-black/50 text-white/80 backdrop-blur transition-colors hover:bg-black/70 hover:text-white"
                 >
                   <Icon name="trash" className="size-3.5" />
                 </button>

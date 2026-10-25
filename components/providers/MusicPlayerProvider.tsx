@@ -303,6 +303,22 @@ function driveCurve(amount: number): Float32Array<ArrayBuffer> {
 }
 
 /**
+ * Waits between the attempts to take a track back: a quick one for a hiccup,
+ * a patient one for a device that was asleep.
+ */
+const PLAYBACK_RETRY_AFTER = [150, 700, 1800, 4000, 9000];
+
+/**
+ * WebKit on iOS is the engine that suspends an AudioContext once the app
+ * leaves the foreground; the rest keep an audible one running. Only it needs
+ * the graph to step aside.
+ */
+const SUSPENDS_GRAPH_WHEN_HIDDEN =
+  typeof navigator !== "undefined" &&
+  (/iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+/**
  * App-wide music playback.
  *
  * Lives beside the data providers (not inside /music) so the queue and the
@@ -1160,6 +1176,144 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [applySpatial, applyRouting, applyFX]);
 
+  /* ── Background survival ──────────────────────────────────────────────
+   * A track that stops in the background has usually been taken, not finished:
+   * the media session reclaimed, the stream stalled while the renderer was
+   * throttled, an AudioContext suspended with the app off screen. The player
+   * watches for the pause it did not ask for and takes the audio back.
+   */
+  const recoveryRef = useRef<number | null>(null);
+  /** How many times the current interruption has been retried. */
+  const attemptsRef = useRef(0);
+  /** Set only when the user's own controls stopped the music. */
+  const userPausedRef = useRef(false);
+  /** A source swap pauses the element on its way through — not an interruption. */
+  const swapUntilRef = useRef(0);
+  /** The graph was live when the page left, so put it back when it returns. */
+  const rebuildGraphRef = useRef(false);
+  /** The retry chain lives here so it can call itself. */
+  const retryRef = useRef<() => void>(() => {});
+
+  const clearRecovery = useCallback(() => {
+    if (recoveryRef.current !== null) window.clearTimeout(recoveryRef.current);
+    recoveryRef.current = null;
+    attemptsRef.current = 0;
+  }, []);
+
+  useEffect(() => {
+    const attempt = () => {
+      recoveryRef.current = null;
+      const audio = audioRef.current;
+      if (!audio || !shouldPlayRef.current || userPausedRef.current) return;
+      audioContextRef.current?.resume().catch(() => {});
+      // Still decoding, so whatever stalled has already worked itself out.
+      if (!audio.paused) {
+        attemptsRef.current = 0;
+        return;
+      }
+      audio.play().catch(() => {
+        if (!shouldPlayRef.current || userPausedRef.current) return;
+        const wait = PLAYBACK_RETRY_AFTER[attemptsRef.current];
+        attemptsRef.current += 1;
+        if (wait === undefined) {
+          attemptsRef.current = 0;
+          shouldPlayRef.current = false;
+          setPlaying(false);
+          setPlayerError("Playback was interrupted — press play to continue.");
+          return;
+        }
+        recoveryRef.current = window.setTimeout(attempt, wait);
+      });
+    };
+    retryRef.current = attempt;
+    return () => {
+      if (recoveryRef.current !== null) window.clearTimeout(recoveryRef.current);
+      recoveryRef.current = null;
+      retryRef.current = () => {};
+    };
+  }, []);
+
+  const recoverPlayback = useCallback(() => {
+    if (!shouldPlayRef.current || userPausedRef.current) return;
+    if (recoveryRef.current !== null || Date.now() < swapUntilRef.current) return;
+    attemptsRef.current = 1;
+    recoveryRef.current = window.setTimeout(() => retryRef.current(), PLAYBACK_RETRY_AFTER[0]);
+  }, []);
+
+  const handlePause = useCallback(() => {
+    setPlaying(false);
+    const audio = audioRef.current;
+    if (audio?.ended) return; // the hand-off to the next track handles that pause
+    if (shouldPlayRef.current && !userPausedRef.current) recoverPlayback();
+  }, [recoverPlayback]);
+
+  /**
+   * Frees the element from Web Audio. A media source cannot be unwired, so the
+   * only way out of a suspended context is to close it; playback carries on
+   * natively and the graph is rebuilt from the same refs on the way back.
+   */
+  const releaseGraph = useCallback(() => {
+    spatialCleanupRef.current();
+    spatialCleanupRef.current = () => {};
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    sourceRef.current = null;
+    analyserRef.current = null;
+    filtersRef.current = [];
+    preampNodeRef.current = null;
+    panNodeRef.current = null;
+    loCutNodeRef.current = null;
+    routeTargetRef.current = null;
+    djInRef.current = null;
+    djOutRef.current = null;
+    fxStagesRef.current = null;
+    subShelfRef.current = null;
+    sweepLpRef.current = null;
+    sweepHpRef.current = null;
+    compRef.current = null;
+    limitRef.current = null;
+    loudLowRef.current = null;
+    loudHighRef.current = null;
+    stGainRef.current = null;
+    stDepthRef.current = null;
+    shaperRef.current = null;
+    metersRef.current = [null, null];
+    spaceInRef.current = null;
+    spaceOutRef.current = null;
+    void context?.close().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!SUSPENDS_GRAPH_WHEN_HIDDEN) return;
+    const onVisibility = () => {
+      if (document.hidden) {
+        if (!audioContextRef.current) return;
+        rebuildGraphRef.current = true;
+        releaseGraph();
+        setVisualizerReady(false);
+      } else if (rebuildGraphRef.current) {
+        rebuildGraphRef.current = false;
+        setVisualizerReady(Boolean(ensureGraph()));
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [ensureGraph, releaseGraph]);
+
+  /* A page holding a web lock is not a page the browser freezes, and a frozen
+   * tab stops decoding shortly after it leaves the screen. */
+  useEffect(() => {
+    const locks = navigator.locks;
+    if (!locks || !playing) return;
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    void locks
+      .request("zyrava-playback", () => held)
+      .catch(() => undefined);
+    return () => release();
+  }, [playing]);
 
   // Apply EQ changes live and re-route: everything back at zero frees the
   // signal from the filter chain entirely.
@@ -1185,6 +1339,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const startStream = async () => {
       /** Points the element at `src` and resumes wherever transport left off. */
       const arm = (source: string) => {
+        // A source swap pauses the element on its way through — that pair of
+        // events is not the interruption the recovery watches for.
+        swapUntilRef.current = Date.now() + 1500;
+        userPausedRef.current = false;
+        clearRecovery();
         audio.src = source;
         audio.playbackRate = rateRef.current;
         audio.load();
@@ -1193,8 +1352,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // Fresh track: the crossfade envelope starts wide open.
         if (djOutRef.current) djOutRef.current.gain.value = 1;
         audio.play().catch(() => {
-          setPlayerError("Streaming was interrupted — press play to retry.");
-          setPlaying(false);
+          // A hand-off while the page is off screen commonly refuses the first
+          // try and takes a later one, so this is a retry rather than a failure.
+          swapUntilRef.current = 0;
+          recoverPlayback();
         });
       };
 
@@ -1328,37 +1489,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // Release the audio graph when the provider unmounts (page teardown).
   useEffect(
     () => () => {
-      spatialCleanupRef.current();
-      analyserRef.current = null;
-      filtersRef.current = [];
-      sourceRef.current = null;
-      preampNodeRef.current = null;
-      panNodeRef.current = null;
-      loCutNodeRef.current = null;
-      routeTargetRef.current = null;
-      djInRef.current = null;
-      djOutRef.current = null;
-      fxStagesRef.current = null;
-      subShelfRef.current = null;
-      sweepLpRef.current = null;
-      sweepHpRef.current = null;
-      compRef.current = null;
-      limitRef.current = null;
-      loudLowRef.current = null;
-      loudHighRef.current = null;
-      stGainRef.current = null;
-      stDepthRef.current = null;
-      shaperRef.current = null;
-      metersRef.current = [null, null];
-      spaceInRef.current = null;
-      spaceOutRef.current = null;
-      void audioContextRef.current?.close();
-      audioContextRef.current = null;
+      releaseGraph();
       void padContextRef.current?.close();
       padContextRef.current = null;
       padBusRef.current = null;
     },
-    []
+    [releaseGraph]
   );
 
   const togglePlay = useCallback(() => {
@@ -1366,15 +1502,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (!audio || !current) return;
     if (audio.paused) {
       shouldPlayRef.current = true;
+      userPausedRef.current = false;
+      clearRecovery();
       audioContextRef.current?.resume().catch(() => {});
       audio.play().catch(() => {
-        setPlayerError("This track could not be streamed — try the next one.");
-        setPlaying(false);
+        swapUntilRef.current = 0;
+        recoverPlayback();
       });
     } else {
+      userPausedRef.current = true;
+      clearRecovery();
       audio.pause();
     }
-  }, [current]);
+  }, [clearRecovery, current, recoverPlayback]);
 
   const startQueue = useCallback(
     (list: Song[], label: string, position: number) => {
@@ -1474,11 +1614,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const audio = audioRef.current;
     if (!audio) return;
     shouldPlayRef.current = false;
+    userPausedRef.current = true;
+    clearRecovery();
     audio.pause();
     audio.currentTime = 0;
     setProgress(0);
     if (djOutRef.current) djOutRef.current.gain.value = 1;
-  }, []);
+  }, [clearRecovery]);
 
   const endSession = useCallback(() => {
     stop();
@@ -1708,16 +1850,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         void context.resume().catch(() => {});
       }
     };
-    context.addEventListener("statechange", revive);
-    const onVisible = () => {
-      if (!document.hidden) revive();
+    const onStateChange = () => {
+      revive();
     };
+    const onVisible = () => {
+      if (document.hidden) return;
+      revive();
+      // Whatever the engine took while the page was off screen comes back now.
+      recoverPlayback();
+    };
+    context.addEventListener("statechange", onStateChange);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      context.removeEventListener("statechange", revive);
+      context.removeEventListener("statechange", onStateChange);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [visualizerReady, current]);
+  }, [visualizerReady, current, recoverPlayback]);
 
   const value = useMemo<MusicPlayerValue>(
     () => ({
@@ -1871,15 +2019,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       <audio
         ref={audioRef}
         preload="auto"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
+        onPlay={() => {
+          userPausedRef.current = false;
+          clearRecovery();
+          setPlaying(true);
+        }}
+        onPause={handlePause}
+        onStalled={recoverPlayback}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={(event) =>
           setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)
         }
         onEnded={handleEnded}
         onError={() => {
-          if (current) {
+          if (!current) return;
+          shouldPlayRef.current = false;
+          if (current.offline) {
             setPlayerError(
               current.offline
                 ? "This saved copy is no longer on this device."

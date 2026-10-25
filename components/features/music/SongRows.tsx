@@ -19,8 +19,6 @@ function formatSeconds(value: number): string {
 /** The round icon button every row action is built from. */
 const ROW_ACTION =
   "grid size-8 flex-none place-items-center rounded-full text-muted transition-colors hover:bg-surface-secondary hover:text-foreground";
-/** In the table variant the actions wait for the pointer, until one is engaged. */
-const ROW_UNTIL_TOUCHED = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100";
 
 /**
  * How much of a song has reached the device so far. The browser reports bytes,
@@ -67,7 +65,7 @@ export function SongTableHead({ album = true }: { album?: boolean }) {
  * Puts a copy of the track on this device, or takes it back off. Every list
  * offers it, so it lives beside the rows instead of inside one view.
  */
-export function SaveToDevice({ song, table = false }: { song: Song; table?: boolean }) {
+export function SaveToDevice({ song }: { song: Song }) {
   const { savedIds, progress, save, removeSaved } = useOffline();
   const saved = savedIds.has(song.id);
   const busy = progress[song.id];
@@ -91,11 +89,7 @@ export function SaveToDevice({ song, table = false }: { song: Song; table?: bool
             ? "On this device"
             : "Save on this device"
       }
-      className={cn(
-        ROW_ACTION,
-        (saved || busy) && "text-brand",
-        table && !saved && !busy && ROW_UNTIL_TOUCHED
-      )}
+      className={cn(ROW_ACTION, (saved || busy) && "text-brand")}
     >
       {busy ? (
         busy.total > 0 ? (
@@ -114,9 +108,10 @@ export function SaveToDevice({ song, table = false }: { song: Song; table?: bool
  * Shared track row for the Liked and Playlist home tabs.
  *
  * `table` switches on the Spotify presentation — numbered rows whose index
- * becomes a play button on hover, an album column, actions that only appear
- * with the pointer and the current track marked in the brand colour. Without
- * it the rows stay exactly as the compact lists render them today.
+ * becomes a play button on hover, an album column, and the current track
+ * marked in the brand colour. Without it the rows stay exactly as the compact
+ * lists render them today. Every row action shows without the pointer, so a
+ * touch device reaches them the same way a desktop does.
  *
  * `device` marks a list of audio that already lives here — the saved copies
  * and imported files. Those rows have nothing to save again, and liking or
@@ -175,7 +170,7 @@ export function SongRows({
             onClick={() => void exportCopy(song.id)}
             aria-label={`Export a copy of ${song.title}`}
             title="Export a copy"
-            className={cn(ROW_ACTION, table && ROW_UNTIL_TOUCHED)}
+            className={ROW_ACTION}
           >
             <Icon name="download" className="size-4" />
           </button>
@@ -189,11 +184,7 @@ export function SongRows({
                 isLiked(song) ? `Remove ${song.title} from Liked songs` : `Like ${song.title}`
               }
               title={isLiked(song) ? "Liked" : "Like this song"}
-              className={cn(
-                ROW_ACTION,
-                table && ROW_UNTIL_TOUCHED,
-                isLiked(song) && !table && "opacity-100"
-              )}
+              className={ROW_ACTION}
             >
               <Icon
                 name="heart"
@@ -205,11 +196,11 @@ export function SongRows({
               onClick={() => openPicker(song)}
               aria-label={`Add ${song.title} to a playlist`}
               title="Add to playlist"
-              className={cn(ROW_ACTION, table && ROW_UNTIL_TOUCHED)}
+              className={ROW_ACTION}
             >
               <Icon name="plus" className="size-4" />
             </button>
-            <SaveToDevice song={song} table={table} />
+            <SaveToDevice song={song} />
           </>
         );
 
@@ -323,7 +314,7 @@ export function SongRows({
                     onClick={() => onRemove(song)}
                     aria-label={`Remove ${song.title}`}
                     title={device ? "Remove from this device" : "Remove from this playlist"}
-                    className="grid size-8 flex-none place-items-center rounded-full text-faint-foreground opacity-0 transition-colors hover:bg-surface-secondary hover:text-danger group-hover:opacity-100"
+                    className="grid size-8 flex-none place-items-center rounded-full text-faint-foreground transition-colors hover:bg-surface-secondary hover:text-danger"
                   >
                     <Icon name="trash" className="size-4" />
                   </button>
