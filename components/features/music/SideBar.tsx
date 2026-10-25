@@ -8,6 +8,7 @@ import { Icon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useLibrary } from "@/components/providers/LibraryProvider";
+import { usePwa } from "@/components/providers/PwaProvider";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import {
   DEFAULT_VOLUME,
@@ -131,6 +132,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
   } = useMusicPlayer();
   const { resolved, toggle } = useTheme();
   const { user, status: authStatus, logout } = useAuth();
+  const { canInstall, install } = usePwa();
   const accountName = user?.name ?? user?.email ?? user?.phone ?? "Account";
   const accountInitial = accountName.slice(0, 1).toUpperCase();
 
@@ -776,13 +778,20 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
                   Sign in
                 </Link>
               )}
-              <DockIcon label={themeLabel} onClick={toggle}>
-                <Icon
-                  name={resolved === "dark" ? "sun" : "moon"}
-                  className="size-4"
-                  strokeWidth={1.9}
-                />
-              </DockIcon>
+              <div className="flex flex-none items-center gap-1">
+                {canInstall ? (
+                  <DockIcon label="Install app" onClick={() => void install()}>
+                    <Icon name="download" className="size-4" strokeWidth={1.9} />
+                  </DockIcon>
+                ) : null}
+                <DockIcon label={themeLabel} onClick={toggle}>
+                  <Icon
+                    name={resolved === "dark" ? "sun" : "moon"}
+                    className="size-4"
+                    strokeWidth={1.9}
+                  />
+                </DockIcon>
+              </div>
             </div>
           </>
         ) : (
@@ -830,6 +839,11 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
               >
                 <Icon name="user" className="size-4" strokeWidth={1.9} />
               </Link>
+            ) : null}
+            {canInstall ? (
+              <DockIcon label="Install app" onClick={() => void install()}>
+                <Icon name="download" className="size-4" strokeWidth={1.9} />
+              </DockIcon>
             ) : null}
             <DockIcon label={themeLabel} onClick={toggle}>
               <Icon

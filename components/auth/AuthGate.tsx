@@ -29,9 +29,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   return (
     <div className="grid min-h-dvh place-items-center bg-background px-6 text-foreground">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <span className="grid size-11 place-items-center rounded-xl bg-accent text-accent-foreground">
-          <Icon name="music" className="size-5" strokeWidth={2.2} />
+      <div className="flex flex-col items-center gap-5 text-center">
+        <span className="relative grid size-14 place-items-center">
+          <span
+            className="absolute inset-0 rounded-2xl border-2 border-separator border-t-accent motion-safe:animate-spin"
+            aria-hidden
+          />
+          <span className="grid size-11 place-items-center rounded-xl bg-accent text-accent-foreground">
+            <Icon name="music" className="size-5" strokeWidth={2.2} />
+          </span>
         </span>
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted">
@@ -39,8 +45,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
           </p>
           <p className="pt-2 text-xs text-faint-foreground">ZYRAVA · Listening studio</p>
         </div>
-        <span className="h-0.5 w-24 overflow-hidden rounded-full bg-surface">
-          <span className="block h-full w-1/2 animate-pulse rounded-full bg-accent" />
+        <span aria-hidden className="relative h-0.5 w-32 overflow-hidden rounded-full bg-surface">
+          <span className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-accent motion-safe:animate-[splash-sweep_1.15s_ease-in-out_infinite]" />
         </span>
       </div>
     </div>

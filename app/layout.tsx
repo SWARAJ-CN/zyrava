@@ -7,6 +7,7 @@ import { AuthGate } from "@/components/auth/AuthGate";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { LibraryProvider } from "@/components/providers/LibraryProvider";
 import { PlaybackSessionGuard } from "@/components/providers/PlaybackSessionGuard";
+import { PwaProvider } from "@/components/providers/PwaProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { ToastProvider } from "@/components/providers/ToastProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
@@ -30,6 +31,19 @@ export const metadata: Metadata = {
   },
   description: "Browse music by region — pick a language, search anything, and listen with your own equalizer.",
   applicationName: "ZYRAVA",
+  icons: {
+    // app/icon.svg is served, but the manual <head> below stops Next from
+    // linking it on its own, so the href is declared here.
+    icon: "/icon.svg",
+    apple: "/icons/apple-icon.png",
+  },
+  // iOS has no beforeinstallprompt: this is what turns Add to Home Screen into
+  // a standalone window instead of a bookmark that opens in Safari's chrome.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "ZYRAVA",
+  },
 };
 
 export const viewport: Viewport = {
@@ -73,19 +87,21 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full bg-background text-foreground">
         <I18nProvider initialLocale={locale}>
-          <ThemeProvider>
-            <AuthProvider>
-              <ToastProvider>
-                <MusicPlayerProvider>
-                  <LibraryProvider>
-                    <PlaybackSessionGuard />
-                    <AppChrome />
-                    <AuthGate>{children}</AuthGate>
-                  </LibraryProvider>
-                </MusicPlayerProvider>
-              </ToastProvider>
-            </AuthProvider>
-          </ThemeProvider>
+          <PwaProvider>
+            <ThemeProvider>
+              <AuthProvider>
+                <ToastProvider>
+                  <MusicPlayerProvider>
+                    <LibraryProvider>
+                      <PlaybackSessionGuard />
+                      <AppChrome />
+                      <AuthGate>{children}</AuthGate>
+                    </LibraryProvider>
+                  </MusicPlayerProvider>
+                </ToastProvider>
+              </AuthProvider>
+            </ThemeProvider>
+          </PwaProvider>
         </I18nProvider>
       </body>
     </html>

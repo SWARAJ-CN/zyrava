@@ -342,10 +342,6 @@ export function AuthScreen({
               </Link>
             </p>
           </div>
-
-          <p className="text-[10px] leading-relaxed text-faint-foreground">
-            Protected by CSRF tokens, short-lived JWTs and httpOnly refresh cookies.
-          </p>
         </section>
 
         {/* Trending panel — what the catalogue is playing right now. */}

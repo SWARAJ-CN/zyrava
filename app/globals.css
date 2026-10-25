@@ -335,6 +335,13 @@ button,
   50% { height: 100%; }
 }
 
+/* Indeterminate loader for the splash screen: a short segment crosses the
+   track and restarts, so it reads as work in progress rather than a stall. */
+@keyframes splash-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
 /* Carousel art card breathes softly while a slide is on screen. */
 @keyframes carousel-pop {
   0%, 100% { transform: scale(1) rotate(0deg); }
