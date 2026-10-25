@@ -11,6 +11,8 @@ interface SearchWithSuggestionsProps {
   value: string;
   onChange: (value: string) => void;
   onPick: (song: Song) => void;
+  /** Enter with a phrase: the page scrolls the list into view. */
+  onCommit?: (value: string) => void;
   className?: string;
 }
 
@@ -22,6 +24,7 @@ export function SearchWithSuggestions({
   value,
   onChange,
   onPick,
+  onCommit,
   className,
 }: SearchWithSuggestionsProps) {
   const [open, setOpen] = useState(false);
@@ -73,7 +76,10 @@ export function SearchWithSuggestions({
       className={cn("relative", className)}
       onKeyDown={(event) => {
         if (event.key === "Escape") setOpen(false);
-        if (event.key === "Enter" && query.length >= 2) setOpen(false);
+        if (event.key === "Enter" && query.length >= 2) {
+          setOpen(false);
+          onCommit?.(query);
+        }
       }}
     >
       <div onFocus={() => setOpen(true)}>

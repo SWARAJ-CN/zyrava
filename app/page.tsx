@@ -706,6 +706,13 @@ export default function MusicPage() {
               value={input}
               onChange={setInput}
               onPick={(song) => startQueue([song], song.title, 0)}
+              onCommit={() => {
+                // Enter means "show me what you found", so the list comes to
+                // the reader instead of the reader hunting for it.
+                document
+                  .getElementById("library-list")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
               className="w-full sm:w-96"
             />
           }
@@ -898,7 +905,11 @@ export default function MusicPage() {
       </div>
 
       {/* Region grid — square cover cards with a hover play affordance. */}
-      <div id="region-library" className="mt-8 scroll-mt-24 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
+      {/* One scrolling rail of language cards — they never stack into a block. */}
+      <div
+        id="region-library"
+        className="scrollbar-none mt-8 flex snap-x gap-3 overflow-x-auto pb-2 scroll-mt-24 sm:gap-4"
+      >
         {REGIONS.map((candidate) => {
           const active = candidate.label === term;
           return (
@@ -908,7 +919,7 @@ export default function MusicPage() {
               aria-pressed={active}
               onClick={() => openRegion(candidate.label)}
               className={cn(
-                "group relative aspect-square w-full cursor-pointer overflow-hidden rounded-lg border text-start shadow-field transition-all duration-200 hover:-translate-y-1 hover:shadow-pop",
+                "group relative aspect-square w-32 flex-none snap-start cursor-pointer overflow-hidden rounded-lg border text-start shadow-field transition-all duration-200 hover:-translate-y-1 hover:shadow-pop sm:w-36",
                 active
                   ? "border-transparent ring-2 ring-accent ring-offset-2 ring-offset-background"
                   : "border-separator"

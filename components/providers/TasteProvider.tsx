@@ -242,7 +242,7 @@ class TasteEngine {
 
     this.buffer = appendEvent(this.buffer, kind, song, extra);
     this.persist();
-    this.vector = buildVector(this.state, this.buffer.events);
+    this.vector = buildVector(this.state, this.buffer.events, this.storedSongs());
     this.notify();
 
     if (kind === "like" || kind === "unlike" || pendingEvents(this.buffer).length >= FLUSH_AT) {
