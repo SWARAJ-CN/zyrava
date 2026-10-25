@@ -319,18 +319,6 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
                 />
                 <span className="truncate">Now playing panel</span>
               </button>
-
-              {current?.pageUrl ? (
-                <a
-                  href={current.pageUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={cn(ROW, "text-muted hover:bg-dock-hover hover:text-foreground")}
-                >
-                  <Icon name="external-link" className="size-4 flex-none" strokeWidth={1.9} />
-                  <span className="truncate">Open song page</span>
-                </a>
-              ) : null}
             </div>
           ) : null}
 

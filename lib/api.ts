@@ -1,6 +1,11 @@
 "use client";
 
-const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000").replace(/\/+$/, "");
+/*
+ * Account calls are relative on purpose: next.config proxies them to the API
+ * host, which keeps their cookies first-party. Calling the API host directly
+ * makes Safari and Firefox drop the CSRF and session cookies, and every
+ * sign-in comes back "Invalid or missing CSRF token".
+ */
 
 export class ApiError extends Error {
   readonly status: number;
@@ -48,7 +53,7 @@ export function getAccessToken() {
 async function requestCsrf(force = false): Promise<string> {
   if (!force && csrfToken) return csrfToken;
   if (!csrfInFlight) {
-    csrfInFlight = fetch(`${BASE_URL}/api/auth/csrf`, {
+    csrfInFlight = fetch("/api/auth/csrf", {
       credentials: "include",
       cache: "no-store",
     })
@@ -88,7 +93,7 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
+    response = await fetch(path, {
       method,
       headers,
       credentials: "include",

@@ -133,18 +133,6 @@ export function NowPlayingPanel() {
           >
             <Icon name={playing ? "pause" : "play"} size={18} className="fill-current" />
           </button>
-          {current.pageUrl ? (
-            <a
-              href={current.pageUrl}
-              target="_blank"
-              rel="noreferrer"
-              title="Open song page"
-              aria-label="Open song page"
-              className="grid size-10 place-items-center rounded-full text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"
-            >
-              <Icon name="external-link" className="size-4.5" />
-            </a>
-          ) : null}
           <span className="ms-auto truncate text-[11px] font-medium text-faint-foreground">
             ZYRAVA
           </span>

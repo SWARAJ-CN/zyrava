@@ -512,18 +512,6 @@ export function StickyPlayerBar() {
                   className="w-16 cursor-pointer rounded-full lg:w-24"
                   style={{ accentColor: "var(--accent)" }}
                 />
-                {current.pageUrl ? (
-                  <a
-                    href={current.pageUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="Open song page"
-                    aria-label="Open song page"
-                    className="grid size-9 flex-none place-items-center rounded-full text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"
-                  >
-                    <Icon name="external-link" className="size-4" />
-                  </a>
-                ) : null}
               </div>
             </div>
 
