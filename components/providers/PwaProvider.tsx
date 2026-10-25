@@ -36,14 +36,45 @@ export function usePwa(): PwaApi {
   return useContext(PwaContext);
 }
 
-/** Every engine says "this is the installed app" a little differently. */
-function readInstalled(): boolean {
+/**
+ * Whether the app itself is running — its own window, icon and lifecycle —
+ * rather than a page inside a browser tab. Every engine says it differently.
+ */
+function readsAsApp(): boolean {
   if (typeof window === "undefined") return false;
   if ((window.navigator as Navigator & { standalone?: boolean }).standalone === true) return true;
   return (
     window.matchMedia("(display-mode: standalone)").matches ||
     window.matchMedia("(display-mode: minimal-ui)").matches
   );
+}
+
+/**
+ * A tab cannot look at the home screen and see the icon, so the app remembers
+ * the two moments it can prove an install: the device confirming one, and a
+ * launch that starts as an app. Both write the same mark.
+ */
+const INSTALLED_MARK = "zyrava:installed";
+
+function markInstalled(): void {
+  try {
+    window.localStorage.setItem(INSTALLED_MARK, "1");
+  } catch {
+    /* Storage turned off costs the reminder its memory, nothing more. */
+  }
+}
+
+function readInstalled(): boolean {
+  if (typeof window === "undefined") return false;
+  if (readsAsApp()) {
+    markInstalled();
+    return true;
+  }
+  try {
+    return window.localStorage.getItem(INSTALLED_MARK) === "1";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -75,6 +106,7 @@ export function PwaProvider({ children }: { children: ReactNode }) {
     const onInstalled = () => {
       setPrompt(null);
       setInstalling(false);
+      markInstalled();
       setInstalled(true);
     };
 

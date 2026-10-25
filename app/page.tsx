@@ -29,6 +29,9 @@ import { cn } from "@/lib/cn";
 import { dedupeSongs, songFingerprint, type Song } from "@/lib/saavn";
 
 const PAGE_SIZE = 10;
+/** How far into a query the browse feed may open. Every visit draws its own
+ *  spot, so the same ten songs never meet you at the door twice. */
+const FEED_ROTATION = 12;
 /** How far playback may walk through the pages of one search on its own. */
 const MAX_CHAIN_PAGES = 12;
 
@@ -87,6 +90,10 @@ type PageResult = PagePayload | { error: string } | null;
 export default function MusicPage() {
   const [input, setInput] = useState("");
   const [term, setTerm] = useState<string>(REGIONS[0].label);
+  /** Pages skipped before the feed opens — drawn once per visit. */
+  const [feedOffset, setFeedOffset] = useState(() =>
+    Math.floor(Math.random() * FEED_ROTATION)
+  );
   const [batch, setBatch] = useState(0);
   /** Bumped by "Retry" to force a refetch without changing the query. */
   const [attempt, setAttempt] = useState(0);
@@ -155,6 +162,9 @@ export default function MusicPage() {
   const playlistQuery = freeText || baseRegion.queries[0] || "top playlists";
   /** Tracks per numbered page: ten songs, then next. */
   const pageSize = PAGE_SIZE;
+  /** The browse feed opens on a fresh spot each visit; a typed search starts
+   *  at its own first page, where the user expects it. */
+  const firstPage = freeText ? 1 : feedOffset + 1;
 
   /** The regions the filter bar currently counts — selected, or the active one. */
   const activeRegions = useMemo(
@@ -172,8 +182,8 @@ export default function MusicPage() {
   /** Signature of the whole filter selection — any change is a new library. */
   const filterKey = `${selectedLangs.join(">")}|${selectedVibes.join(">")}`;
 
-  const requestKey = `${term}|${filterKey}|${batch}|${attempt}`;
-  const termKey = `${term}|${filterKey}|${attempt}`;
+  const requestKey = `${term}|${filterKey}|${batch}|${attempt}|${feedOffset}`;
+  const termKey = `${term}|${filterKey}|${attempt}|${feedOffset}`;
   const [loadedKey, setLoadedKey] = useState("");
   const fetching = loadedKey !== requestKey;
 
@@ -337,16 +347,16 @@ export default function MusicPage() {
       // languages only re-rank the results below.
       if (activeVibes.length) {
         for (const vibe of activeVibes) {
-          combos.push({ query: `${freeText} ${vibe.queries[0]}`, page: batch + 1 });
+          combos.push({ query: `${freeText} ${vibe.queries[0]}`, page: firstPage + batch });
         }
       } else {
-        combos.push({ query: freeText, page: batch + 1 });
+        combos.push({ query: freeText, page: firstPage + batch });
       }
     } else {
       for (const activeRegion of activeRegions) {
         if (!activeVibes.length) {
           for (const query of activeRegion.queries) {
-            combos.push({ query, page: batch + 1 });
+            combos.push({ query, page: firstPage + batch });
           }
         }
       }
@@ -362,7 +372,7 @@ export default function MusicPage() {
               .map((candidate) => `${candidate.label.toLowerCase()} ${vibe.queries[0]}`),
           ];
           for (const query of angles.slice(0, 6)) {
-            combos.push({ query, page: batch + 1 });
+            combos.push({ query, page: firstPage + batch });
           }
         }
       }
@@ -435,6 +445,14 @@ export default function MusicPage() {
           regionLabels,
         }).slice(0, pageSize);
 
+        // The catalogue had nothing at this visit's opening spot — an unusual
+        // query with fewer results than the pages skipped. Fall back to its
+        // first page rather than showing an empty feed.
+        if (!selected.length && firstPage > 1 && batch === 0) {
+          setFeedOffset(0);
+          return;
+        }
+
         const total = responses.reduce(
           (sum, response) =>
             response && "total" in response && typeof response.total === "number"
@@ -469,7 +487,11 @@ export default function MusicPage() {
   const songs = library.termKey === termKey ? library.songs : [];
   /** True while the first results for a new query are still on the wire. */
   const listLoading = fetching && songs.length === 0;
-  const pageCount = Math.max(1, Math.ceil(library.total / pageSize));
+  /** Pages left to walk, counted from wherever this visit opened. */
+  const pageCount = Math.max(
+    1,
+    Math.ceil((library.total - (firstPage - 1) * pageSize) / pageSize)
+  );
 
   /* ── Page chaining ───────────────────────────────────────────────────────
    * The last track of a page turns the page, and the fresh ten join the queue
@@ -583,6 +605,15 @@ export default function MusicPage() {
     }
     if (!shuffle) toggleShuffle();
     startQueue(mixed, term, 0);
+  };
+
+  /** Another spot in the catalogue, so the list is never the one you just saw.
+   *  A typed search keeps its own ordering — only the browse feed moves. */
+  const refreshFeed = () => {
+    const step = 1 + Math.floor(Math.random() * (FEED_ROTATION - 1));
+    setFeedOffset((value) => (value + step) % FEED_ROTATION);
+    setBatch(0);
+    setError(null);
   };
 
   /** Live bars with a CSS mimic fallback where CORS blocks the analyser. */
@@ -908,6 +939,21 @@ export default function MusicPage() {
             <Icon name="shuffle" className="size-3.5" />
             Shuffle
           </button>
+          {freeText ? null : (
+            <button
+              type="button"
+              onClick={refreshFeed}
+              disabled={fetching}
+              title="Load a different set of songs"
+              className="flex h-9 items-center gap-2 rounded-full border border-separator px-3.5 text-xs font-semibold text-muted transition-colors hover:border-border-strong hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Icon
+                name="refresh"
+                className={cn("size-3.5", fetching && "motion-safe:animate-spin")}
+              />
+              Refresh
+            </button>
+          )}
           <SegmentedControl
             options={VIEW_OPTIONS.map((option) => ({
               value: option.value,

@@ -225,6 +225,12 @@ export const ICONS = {
       <line x1="4" y1="4" x2="9" y2="9" />
     </>
   ),
+  refresh: (
+    <>
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </>
+  ),
   repeat: (
     <>
       <polyline points="17 1 21 5 17 9" />
