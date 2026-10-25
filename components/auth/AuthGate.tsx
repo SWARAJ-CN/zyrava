@@ -3,15 +3,38 @@
 import { useEffect, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { Icon } from "@/components/ui/icons";
 
 const PUBLIC_ROUTES = new Set(["/login", "/register"]);
 
-/**
- * The music app is private. Anonymous visitors never see the home screen:
- * they get the branded splash while the refresh cookie is checked, then are
- * sent to /login with a `next` back to where they were headed.
- */
+const SPLASH_GLYPHS: ReactNode[] = [
+  <>
+    <path d="M4 13.5v-1a8 8 0 0 1 16 0v1" />
+    <rect x="2.5" y="13.5" width="4.5" height="7" rx="2.25" />
+    <rect x="17" y="13.5" width="4.5" height="7" rx="2.25" />
+  </>,
+  <>
+    <rect x="5" y="2.5" width="14" height="19" rx="3" />
+    <circle cx="12" cy="15.5" r="3.5" />
+    <circle cx="12" cy="7.5" r="1.25" />
+  </>,
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="2.75" />
+  </>,
+  <>
+    <rect x="9" y="2.5" width="6" height="11" rx="3" />
+    <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" />
+    <path d="M12 18v3.5" />
+  </>,
+  <>
+    <path d="M9 17.5V6l10-2.2v11" />
+    <circle cx="6.75" cy="17.5" r="2.25" />
+    <circle cx="16.75" cy="14.8" r="2.25" />
+  </>,
+];
+
+const GLYPH_RADIUS = 24;
+
 export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -47,9 +70,49 @@ export function AuthGate({ children }: { children: ReactNode }) {
             aria-hidden
             className="absolute inset-0 rounded-full border-2 border-separator border-t-accent motion-safe:animate-spin [animation-duration:1.6s]"
           />
-          <span className="grid size-12 place-items-center rounded-2xl bg-accent text-accent-foreground">
-            <Icon name="music" className="size-6" strokeWidth={2.2} />
-          </span>
+
+          {/* Tinted disc so the glyphs have something to sit on */}
+          <span aria-hidden className="absolute inset-[3px] rounded-full bg-accent/[0.06]" />
+
+          {/* Every glyph, arranged on a small circle, each hopping on its own beat */}
+          <div aria-hidden className="absolute inset-0">
+            {SPLASH_GLYPHS.map((glyph, i) => {
+              const angle =
+                (-90 + (360 / SPLASH_GLYPHS.length) * i) * (Math.PI / 180);
+              const x = Math.cos(angle) * GLYPH_RADIUS;
+              const y = Math.sin(angle) * GLYPH_RADIUS;
+
+              return (
+                <span
+                  key={i}
+                  className="absolute left-1/2 top-1/2"
+                  style={{
+                    transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
+                  }}
+                >
+                  <span
+                    className="block text-accent motion-safe:animate-[splash-hop_1.15s_ease-in-out_infinite] motion-safe:will-change-transform"
+                    style={{
+                      animationDelay: `${-i * 190}ms`,
+                      animationDuration: `${1.05 + (i % 3) * 0.12}s`,
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="size-[18px]"
+                    >
+                      {glyph}
+                    </svg>
+                  </span>
+                </span>
+              );
+            })}
+          </div>
         </div>
 
         {/* Wordmark */}
