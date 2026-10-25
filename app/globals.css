@@ -1,0 +1,342 @@
+@layer theme, base, components, utilities;
+
+@import "tailwindcss";
+@import "@heroui/styles";
+
+/* ------------------------------------------------------------------ *
+ * App token bridge
+ *
+ * HeroUI ships the semantic palette (background, surface, foreground,
+ * accent, default, success/warning/danger, field tokens …). The admin was
+ * written against a slightly different set of names, so we alias the
+ * leftovers onto HeroUI tokens instead of touching every className.
+ * ------------------------------------------------------------------ */
+@theme inline {
+  /* Surfaces */
+  --color-surface-muted: var(--surface-secondary);
+  --color-surface-inset: var(--surface-secondary);
+  --color-surface-strong: var(--surface-tertiary);
+
+  /* Left dock — see the token block in :root */
+  --color-dock: var(--dock-bg);
+  --color-dock-hover: var(--dock-hover);
+  --color-dock-active: var(--dock-active);
+  --color-dock-line: var(--dock-line);
+
+  /* Text */
+  --color-muted-foreground: var(--muted);
+  --color-faint-foreground: color-mix(in oklab, var(--muted) 74%, transparent);
+
+  /* Borders */
+  --color-border-strong: var(--border-tertiary);
+
+  /* Brand == HeroUI accent */
+  --color-brand: var(--accent);
+  --color-brand-hover: var(--accent-hover);
+  --color-brand-active: color-mix(in oklab, var(--accent) 85%, var(--accent-foreground) 15%);
+  --color-brand-foreground: var(--accent-foreground);
+  --color-brand-soft: var(--accent-soft);
+  --color-brand-soft-foreground: var(--accent-soft-foreground);
+
+  /* Soft status text that stays readable on soft backgrounds */
+  --color-success-soft: var(--success-soft);
+  --color-success-soft-foreground: var(--success-soft-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-soft-foreground: var(--warning-soft-foreground);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-soft-foreground: var(--danger-soft-foreground);
+
+  /* Info (HeroUI has no info hue) */
+  --color-info: light-dark(oklch(0.55 0.16 255), oklch(0.71 0.14 255));
+  --color-info-soft: color-mix(in oklab, var(--color-info) 15%, transparent);
+  --color-info-soft-foreground: color-mix(in oklab, var(--color-info) 72%, var(--foreground) 28%);
+
+  /* Charts — fixed across themes so series keep their identity */
+  --color-chart-1: oklch(0.64 0.2 6);
+  --color-chart-2: oklch(0.62 0.15 255);
+  --color-chart-3: oklch(0.75 0.15 75);
+  --color-chart-4: oklch(0.66 0.14 158);
+  --color-chart-5: oklch(0.62 0.17 300);
+  --color-chart-6: oklch(0.7 0.12 205);
+  --color-chart-7: oklch(0.66 0.17 340);
+  --color-chart-8: oklch(0.7 0.13 130);
+}
+
+:root {
+  /* Inter everywhere. Declared unlayered so it outranks the theme
+     layer's system stack; `--font-mono` points at the same family so the
+     console's numeric readouts share the typeface too. */
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-inter), ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, monospace;
+
+  /* Slightly softer corners than HeroUI's default */
+  --radius: 0.625rem;
+
+  /* Raw tokens referenced directly by charts and inline styles */
+  --brand: var(--accent);
+  --brand-hover: var(--accent-hover);
+  --brand-foreground: var(--accent-foreground);
+  --brand-soft: var(--accent-soft);
+  --surface-muted: var(--surface-secondary);
+  --border-strong: var(--border-tertiary);
+  --faint-foreground: color-mix(in oklab, var(--muted) 74%, transparent);
+
+  --chart-1: oklch(0.64 0.2 6);
+  --chart-2: oklch(0.62 0.15 255);
+  --chart-3: oklch(0.75 0.15 75);
+  --chart-4: oklch(0.66 0.14 158);
+  --chart-5: oklch(0.62 0.17 300);
+  --chart-6: oklch(0.7 0.12 205);
+  --chart-7: oklch(0.66 0.17 340);
+  --chart-8: oklch(0.7 0.13 130);
+
+  /* Layout */
+  --dock-rail: 4.5rem;
+  --dock-wide: 17.5rem;
+  --header-height: 4rem;
+
+  /* Left dock: one surface slightly lifted from the page, so content
+     scrolling underneath never muddies it. */
+  --dock-bg: color-mix(in oklch, var(--surface-secondary) 68%, var(--background));
+  --dock-hover: color-mix(in oklch, var(--foreground) 5%, transparent);
+  --dock-active: color-mix(in oklch, var(--accent) 13%, transparent);
+  --dock-line: color-mix(in oklch, var(--foreground) 8%, transparent);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Shadows mapped to HeroUI tokens */
+  --shadow-card: var(--surface-shadow);
+  --shadow-pop: var(--overlay-shadow);
+
+  scrollbar-gutter: stable;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ------------------------------------------------------------------ *
+ * Reset & base
+ * ------------------------------------------------------------------ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+html {
+  overscroll-behavior-y: none;
+  scroll-padding-block-start: var(--header-height);
+  scroll-behavior: smooth;
+}
+
+/* The dock's phone drawer is a native modal dialog; freeze the page behind it
+   so the drawer scrolls on its own. */
+html:has(dialog[open]) {
+  overflow: hidden;
+}
+
+@media (any-pointer: coarse) {
+  html {
+    overscroll-behavior-y: auto;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+/* Typographic wrapping lives in the base layer on purpose.
+ *
+ * `text-wrap` is a shorthand that also controls `text-wrap-mode`, and an
+ * unlayered rule outranks *every* utility class. Declared unlayered, the
+ * `text-wrap: balance` below silently re-enabled wrapping inside elements that
+ * asked for `truncate`, so long headings (the topbar page title) broke onto
+ * several lines instead of ellipsising. Base layer keeps the default while
+ * letting `truncate` / `text-nowrap` / `whitespace-*` win. */
+@layer base {
+  :root {
+    overflow-wrap: break-word;
+    text-wrap: pretty;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+}
+
+input,
+textarea,
+select {
+  font-size: max(16px, 1rem);
+}
+
+/* The dock and console use selects as compact preset pickers, not as text
+   fields. Keep the 16px floor on phones so iOS still refuses to zoom. */
+.compact-select {
+  font-size: 0.75rem;
+}
+
+@media (max-width: 47.99rem) {
+  .compact-select {
+    font-size: 1rem;
+  }
+}
+
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+button,
+[role="button"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+:focus-visible {
+  outline: max(2px, 0.08em) solid var(--focus);
+  outline-offset: 2px;
+}
+
+/*
+ * HeroUI's overlay collections (menus, list boxes) focus the container itself
+ * and style each row individually. The container outline is clipped by the
+ * popover, which leaves a stray accent-coloured line across the top of the
+ * panel — so drop it and keep the per-row affordance.
+ */
+.dropdown__menu:focus-visible,
+.list-box:focus-visible,
+[data-slot="dropdown-menu"]:focus-visible,
+[data-slot="list-box"]:focus-visible {
+  outline: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Utilities
+ * ------------------------------------------------------------------ */
+.shadow-card {
+  box-shadow: var(--surface-shadow);
+}
+.shadow-pop {
+  box-shadow: var(--overlay-shadow);
+}
+
+.glass {
+  background: color-mix(in oklab, var(--surface) 76%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* The page and the player bar sit beside the dock from md up. These live
+   outside the utility layer on purpose: `lg:px-*` is a padding shorthand and
+   would otherwise win over a responsive `md:ps-*`. */
+@media (min-width: 48rem) {
+  .dock-offset {
+    padding-inline-start: var(--dock-wide);
+  }
+
+  .dock-offset--rail {
+    padding-inline-start: var(--dock-rail);
+  }
+}
+
+/* The dock body keeps a hairline scrollbar until the pointer is over it, so
+   the panel reads as a flat column of content at rest. */
+.dock-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--foreground) 12%, transparent) transparent;
+  overscroll-behavior: contain;
+}
+.dock-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.dock-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dock-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  background-clip: content-box;
+}
+
+
+/* ------------------------------------------------------------------ *
+ * The music app's own accent — a studio teal with a minted edge in dark
+ * mode. Set here so the identity belongs to this app alone; night mode
+ * lifts the value for contrast on dark surfaces.
+ * ------------------------------------------------------------------ */
+:root {
+  --accent: oklch(0.62 0.13 175);
+  --accent-hover: oklch(0.68 0.13 175);
+  --accent-foreground: oklch(0.98 0.01 170);
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
+  --accent-soft-foreground: oklch(0.38 0.09 175);
+}
+
+.dark,
+[data-theme="dark"] {
+  --accent: oklch(0.78 0.13 170);
+  --accent-hover: oklch(0.84 0.12 168);
+  --accent-foreground: oklch(0.25 0.04 172);
+  --accent-soft: color-mix(in oklab, var(--accent) 18%, transparent);
+  --accent-soft-foreground: var(--accent);
+}
+
+/* ------------------------------------------------------------------ *
+ * Equalizer bars — the CSS fallback where the waveform visualiser can't
+ * run. Bars inherit the text colour, so they read correctly on any
+ * surface (white on artwork, brand on rows).
+ * ------------------------------------------------------------------ */.eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.eq > span {
+  display: block;
+  width: 3px;
+  height: 30%;
+  border-radius: 2px;
+  background: currentColor;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .eq > span {
+    animation: music-eq 0.9s ease-in-out infinite;
+  }
+  .eq > span:nth-child(2) { animation-delay: 0.18s; }
+  .eq > span:nth-child(3) { animation-delay: 0.36s; }
+}
+@keyframes music-eq {
+  0%, 100% { height: 30%; }
+  50% { height: 100%; }
+}
+
+/* Carousel art card breathes softly while a slide is on screen. */
+@keyframes carousel-pop {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.035) rotate(-0.4deg); }
+}
