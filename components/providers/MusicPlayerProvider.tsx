@@ -1267,6 +1267,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLAudioElement>) => {
     const time = event.currentTarget.currentTime;
     setProgress(time);
+    // Lock-screen and notification controls need a position to render, and an
+    // OS that sees a stalled one is quicker to reclaim the playback session.
+    if ("mediaSession" in navigator) {
+      const duration = event.currentTarget.duration;
+      if (duration && Number.isFinite(duration)) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration,
+            position: Math.min(time, duration),
+            playbackRate: event.currentTarget.playbackRate,
+          });
+        } catch {
+          /* A seek in flight can leave the pair briefly inconsistent. */
+        }
+      }
+    }
     const last = lastTickRef.current;
     // Only count genuine forward plays; big jumps (seeks) don't count.
     if (time > last && time - last < 5) {
@@ -1653,6 +1669,33 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       navigator.mediaSession.playbackState = playing ? "playing" : "paused";
     }
   }, [playing]);
+
+  /*
+   * Locking the phone suspends the AudioContext, and nothing here brought it
+   * back: the element keeps decoding while the Web Audio chain stays silent, so
+   * the song sounds like it stopped. Resume the context whenever the browser
+   * pulls it out from under a playing track.
+   */
+  useEffect(() => {
+    const context = audioContextRef.current;
+    if (!context) return;
+    const revive = () => {
+      // iOS reports a non-standard "interrupted" state, so anything short of
+      // "running" while audio is playing needs the same treatment.
+      if (context.state !== "running" && !audioRef.current?.paused) {
+        void context.resume().catch(() => {});
+      }
+    };
+    context.addEventListener("statechange", revive);
+    const onVisible = () => {
+      if (!document.hidden) revive();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      context.removeEventListener("statechange", revive);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [visualizerReady, current]);
 
   const value = useMemo<MusicPlayerValue>(
     () => ({

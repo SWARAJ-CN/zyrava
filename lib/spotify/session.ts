@@ -47,11 +47,11 @@ function decode<T>(raw: string): T | null {
   }
 }
 
-function cookieOptions(maxAge: number) {
+async function cookieOptions(maxAge: number) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: spotifyRedirectUri().startsWith("https"),
+    secure: (await spotifyRedirectUri()).startsWith("https"),
     path: "/",
     maxAge,
   };
@@ -59,7 +59,7 @@ function cookieOptions(maxAge: number) {
 
 export async function writeTokens(tokens: SpotifyTokens): Promise<void> {
   const jar = await cookies();
-  jar.set(TOKEN_COOKIE, encode(tokens), cookieOptions(TOKEN_COOKIE_MAX_AGE));
+  jar.set(TOKEN_COOKIE, encode(tokens), await cookieOptions(TOKEN_COOKIE_MAX_AGE));
 }
 
 export async function readTokens(): Promise<SpotifyTokens | null> {
@@ -74,7 +74,7 @@ export async function readTokens(): Promise<SpotifyTokens | null> {
 /** Writes the pending PKCE verifier + state before redirecting to Spotify. */
 export async function writePkceCookie(value: PkceCookie): Promise<void> {
   const jar = await cookies();
-  jar.set(PKCE_COOKIE, encode(value), cookieOptions(PKCE_COOKIE_MAX_AGE));
+  jar.set(PKCE_COOKIE, encode(value), await cookieOptions(PKCE_COOKIE_MAX_AGE));
 }
 
 export async function readPkceCookie(): Promise<PkceCookie | null> {
@@ -86,8 +86,8 @@ export async function readPkceCookie(): Promise<PkceCookie | null> {
 
 export async function clearSpotifyCookies(): Promise<void> {
   const jar = await cookies();
-  jar.set(TOKEN_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
-  jar.set(PKCE_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
+  jar.set(TOKEN_COOKIE, "", { ...(await cookieOptions(0)), maxAge: 0 });
+  jar.set(PKCE_COOKIE, "", { ...(await cookieOptions(0)), maxAge: 0 });
 }
 
 type TokenResponse = {
@@ -107,7 +107,7 @@ export async function exchangeCodeForTokens(
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
-    redirect_uri: spotifyRedirectUri(),
+    redirect_uri: await spotifyRedirectUri(),
     client_id: spotifyClientId(),
     code_verifier: verifier,
   });

@@ -625,7 +625,10 @@ export default function MusicPage() {
       </div>
 
       {/* Primary home tabs — everything below switches with them. */}
-      <nav aria-label="Home sections" className="mt-6 flex items-end gap-1 border-b border-separator">
+      <nav
+        aria-label="Home sections"
+        className="mt-6 flex flex-nowrap items-end gap-1 overflow-x-auto border-b border-separator [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         {HOME_TABS.map((entry) => {
           const active = homeTab === entry.value;
           return (
@@ -635,7 +638,7 @@ export default function MusicPage() {
               onClick={() => setHomeTab(entry.value)}
               aria-current={active || undefined}
               className={cn(
-                "relative -mb-px h-10 border-b-2 px-3.5 text-[13px] font-semibold transition-colors",
+                "relative -mb-px h-10 shrink-0 whitespace-nowrap border-b-2 px-3.5 text-[13px] font-semibold transition-colors",
                 active
                   ? "border-accent text-foreground"
                   : "border-transparent text-muted hover:text-foreground"
@@ -645,7 +648,7 @@ export default function MusicPage() {
             </button>
           );
         })}
-        <span className="ms-auto pb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-faint-foreground">
+        <span className="ms-auto hidden shrink-0 pb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-faint-foreground sm:block">
           {homeTab === "songs" ? "Catalogue" : homeTab === "playlists" ? "Collections" : "Saved"}
         </span>
       </nav>

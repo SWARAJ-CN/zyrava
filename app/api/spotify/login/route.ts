@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("client_id", clientId);
   authorize.searchParams.set("scope", SPOTIFY_SCOPES.join(" "));
-  authorize.searchParams.set("redirect_uri", spotifyRedirectUri());
+  authorize.searchParams.set("redirect_uri", await spotifyRedirectUri());
   authorize.searchParams.set("state", state);
   authorize.searchParams.set("code_challenge", challenge);
   authorize.searchParams.set("code_challenge_method", "S256");
