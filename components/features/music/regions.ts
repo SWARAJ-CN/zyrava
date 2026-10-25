@@ -51,4 +51,52 @@ export const REGIONS: Region[] = [
     hint: "Global pop & rock",
     tone: "var(--chart-6)",
   },
+  {
+    label: "Kannada",
+    queries: ["kannada songs"],
+    hint: "Sandalwood tunes",
+    tone: "var(--chart-7)",
+  },
+  {
+    label: "Bengali",
+    queries: ["bengali songs"],
+    hint: "adda & melody",
+    tone: "var(--chart-2)",
+  },
+  {
+    label: "Marathi",
+    queries: ["marathi songs"],
+    hint: "pavni & mass",
+    tone: "var(--chart-3)",
+  },
+  {
+    label: "Gujarati",
+    queries: ["gujarati songs"],
+    hint: "garba beats",
+    tone: "var(--chart-4)",
+  },
+  {
+    label: "Bhojpuri",
+    queries: ["bhojpuri songs"],
+    hint: "high-voltage folk",
+    tone: "var(--chart-8)",
+  },
+  {
+    label: "Nepali",
+    queries: ["nepali songs"],
+    hint: "Himalayan folk",
+    tone: "var(--chart-1)",
+  },
+  {
+    label: "Arabic",
+    queries: ["arabic songs"],
+    hint: "oud & desert pop",
+    tone: "var(--chart-5)",
+  },
+  {
+    label: "K-pop",
+    queries: ["korean pop songs"],
+    hint: "Seoul stages",
+    tone: "var(--chart-6)",
+  },
 ];

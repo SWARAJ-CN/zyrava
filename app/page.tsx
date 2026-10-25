@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState, Notice, Skeleton, Spinner } from "@/components/ui/Feedback";
 import { Icon } from "@/components/ui/icons";
 import { RegionCarousel } from "@/components/features/music/RegionCarousel";
-import { SpotifyPanel } from "@/components/features/music/SpotifyPanel";
 import { NowPlayingPanel } from "@/components/features/music/NowPlayingPanel";
 import { SearchWithSuggestions } from "@/components/features/music/SearchWithSuggestions";
 import { PlaylistsView } from "@/components/features/music/PlaylistsView";
@@ -17,7 +16,10 @@ import { DownloadsView, OfflineView } from "@/components/features/music/DeviceVi
 import { SaveToDevice } from "@/components/features/music/SongRows";
 import { ImportSongsModal } from "@/components/features/music/ImportSongsModal";
 import { InstallModal } from "@/components/features/music/InstallModal";
+import { useTaste } from "@/components/providers/TasteProvider";
+import { Recommendations } from "@/components/features/music/Recommendations";
 import { PlaylistStrip } from "@/components/features/music/PlaylistStrip";
+import { AnimatePresence, motion } from "framer-motion";
 import { VIBES } from "@/components/features/music/filters";
 import { REGIONS } from "@/components/features/music/regions";
 import { rankSongs } from "@/lib/recommend";
@@ -34,6 +36,9 @@ const PAGE_SIZE = 10;
 const FEED_ROTATION = 12;
 /** How far playback may walk through the pages of one search on its own. */
 const MAX_CHAIN_PAGES = 12;
+/** The carousel re-cuts itself every calendar day, so the feed is never a rerun. */
+const DAY_MS = 86_400_000;
+let carouselDay = 0;
 
 type ViewMode = "small" | "large" | "list";
 
@@ -128,6 +133,7 @@ export default function MusicPage() {
     getAnalyser,
     startQueue,
     appendQueue,
+    setQueueEnd,
     repeat,
     nowPlayingOpen,
     sidebarWide,
@@ -138,6 +144,8 @@ export default function MusicPage() {
 
   const { isLiked, toggleLike, openPicker } = useLibrary();
   const { locals } = useOffline();
+  const { record: recordSearch } = useTaste();
+  const lastSearchRef = useRef<string | null>(null);
 
   /** First look at the Offline tab is the import pitch — an empty list alone
    *  would just read as a broken feature. */
@@ -259,7 +267,9 @@ export default function MusicPage() {
     try {
       const params = new URLSearchParams({
         q: region.queries[0],
-        page: "1",
+        // A day-shifted page: pressing play on the carousel opens today's set,
+        // not yesterday's opening track.
+        page: String(1 + (carouselDay % 9)),
         limit: String(PAGE_SIZE),
       });
       const response = await fetch(`/api/music/search?${params.toString()}`);
@@ -288,6 +298,11 @@ export default function MusicPage() {
       if (value.length >= 2) {
         setTerm(value);
         setBatch(0);
+        // Only the committed phrase is a signal, never the keystrokes that led to it.
+        if (value !== lastSearchRef.current) {
+          lastSearchRef.current = value;
+          recordSearch("search", undefined, { q: value });
+        }
       } else if (!value) {
         setTerm((current) =>
           REGIONS.some((candidate) => candidate.label === current)
@@ -298,26 +313,30 @@ export default function MusicPage() {
       }
     }, 450);
     return () => clearTimeout(timer);
-  }, [input]);
+  }, [input, recordSearch]);
 
-  // Region card covers: one quiet search per region, first artwork wins.
+  /* Region card covers: one quiet search per region. The page and the artwork
+   * index both come from the calendar day, so the carousel opens on fresh
+   * songs every day instead of the same first row of the same first page. */
   useEffect(() => {
     let cancelled = false;
+    carouselDay = Math.floor(Date.now() / DAY_MS);
     for (const candidate of REGIONS) {
+      const index = REGIONS.indexOf(candidate);
       const params = new URLSearchParams({
         q: candidate.queries[0],
-        page: "1",
-        limit: "1",
+        page: String(1 + ((carouselDay + index * 5) % 12)),
+        limit: "12",
       });
       fetch(`/api/music/search?${params.toString()}`)
         .then((response) => response.json())
         .then((payload: { songs?: Song[] } | null) => {
           if (cancelled) return;
-          const image = payload?.songs?.[0]?.imageLarge ?? payload?.songs?.[0]?.image;
+          const songs = payload?.songs ?? [];
+          const pick = songs.length ? songs[(carouselDay + index) % songs.length] : null;
+          const image = pick?.imageLarge ?? pick?.image;
           if (image) {
-            setCovers((prev) =>
-              prev[candidate.label] ? prev : { ...prev, [candidate.label]: image }
-            );
+            setCovers((prev) => ({ ...prev, [candidate.label]: image }));
           }
         })
         .catch(() => {
@@ -564,6 +583,19 @@ export default function MusicPage() {
     return () => cancelAnimationFrame(frame);
   }, [batch, fetching, error, termKey, queue, library, appendQueue]);
 
+  /* Backstop for the chain above: when the last track of the run ends, ask for
+   * its next page instead of looping the same ten or sitting silent. */
+  useEffect(() => {
+    setQueueEnd(() => {
+      const active = chain.current;
+      if (!active || active.key !== termKey || active.page !== batch) return false;
+      if (fetching || error || batch + 1 >= pageCount || batch >= MAX_CHAIN_PAGES) return false;
+      setBatch((value) => value + 1);
+      return true;
+    });
+    return () => setQueueEnd(null);
+  }, [batch, error, fetching, pageCount, setQueueEnd, termKey]);
+
   /** Card heading: a typed phrase leads, then vibes, then the region mix. */
   const libraryTitle = freeText
     ? `${freeText}${activeVibes.length ? ` · ${activeVibes.map((vibe) => vibe.label).join(" + ")}` : ""}`
@@ -694,13 +726,18 @@ export default function MusicPage() {
               onClick={() => openTab(entry.value)}
               aria-current={active || undefined}
               className={cn(
-                "relative -mb-px h-10 shrink-0 whitespace-nowrap border-b-2 px-3.5 text-[13px] font-semibold transition-colors",
-                active
-                  ? "border-accent text-foreground"
-                  : "border-transparent text-muted hover:text-foreground"
+                "relative -mb-px h-10 shrink-0 whitespace-nowrap px-3.5 text-[13px] font-semibold transition-colors",
+                active ? "text-foreground" : "text-muted hover:text-foreground"
               )}
             >
               {entry.label}
+              {active ? (
+                <motion.span
+                  layoutId="home-tab-underline"
+                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent"
+                  transition={{ type: "spring", stiffness: 480, damping: 36 }}
+                />
+              ) : null}
             </button>
           );
         })}
@@ -709,8 +746,15 @@ export default function MusicPage() {
         </span>
       </nav>
 
+      <AnimatePresence mode="wait" initial={false}>
       {homeTab === "songs" ? (
-        <>
+        <motion.div
+          key="songs"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+        >
       {/* Multi-check filter bar — the top section's quick pickers. Languages
           narrow the catalogue; vibes retune the queries, then the list is
           ranked so vibe-fitting songs lead. */}
@@ -848,9 +892,9 @@ export default function MusicPage() {
         />
       </div>
 
-      {/* Spotify library — connect, liked songs, private + collaborative playlists */}
+      {/* Picks built from what this listener actually plays. */}
       <div className="mt-5">
-        <SpotifyPanel />
+        <Recommendations />
       </div>
 
       {/* Region grid — square cover cards with a hover play affordance. */}
@@ -1248,16 +1292,49 @@ export default function MusicPage() {
           <span className="whitespace-nowrap">in Kochi, India</span>
         </p>
       </footer>
-        </>
+        </motion.div>
       ) : homeTab === "playlists" ? (
-        <PlaylistsView query={playlistQuery} />
+        <motion.div
+          key="playlists"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+        >
+          <PlaylistsView query={playlistQuery} />
+        </motion.div>
       ) : homeTab === "liked" ? (
-        <LikedView />
+        <motion.div
+          key="liked"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+        >
+          <LikedView />
+        </motion.div>
       ) : homeTab === "downloads" ? (
-        <DownloadsView />
+        <motion.div
+          key="downloads"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+        >
+          <DownloadsView />
+        </motion.div>
       ) : homeTab === "offline" ? (
-        <OfflineView onImport={() => setImportOpen(true)} />
+        <motion.div
+          key="offline"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+        >
+          <OfflineView onImport={() => setImportOpen(true)} />
+        </motion.div>
       ) : null}
+      </AnimatePresence>
 
       <ImportSongsModal open={importOpen} onClose={() => setImportOpen(false)} />
       <InstallModal />

@@ -13,6 +13,7 @@ import {
 import { Icon } from "@/components/ui/icons";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
+import { useTaste } from "@/components/providers/TasteProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import { cn } from "@/lib/cn";
 import {
@@ -120,6 +121,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { startQueue } = useMusicPlayer();
   const { success, toast } = useToast();
+  const { record } = useTaste();
 
   const [state, setState] = useState<LibraryState>(EMPTY);
   const [pickerSong, setPickerSong] = useState<Song | null>(null);
@@ -220,6 +222,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const toggleLike = useCallback(
     (song: Song) => {
       const nowLiked = !state.liked.some((entry) => entry.id === song.id);
+      record(nowLiked ? "like" : "unlike", song);
       commit(
         (previous) => {
           const exists = previous.liked.some((entry) => entry.id === song.id);
@@ -235,7 +238,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       if (nowLiked) success("Added to Liked songs", song.title);
       else toast({ title: "Removed from Liked songs", description: song.title });
     },
-    [commit, state.liked, success, toast]
+    [commit, record, state.liked, success, toast]
   );
 
   const createPlaylist = useCallback(
@@ -275,6 +278,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         toast({ title: "Already in that playlist", description: song.title });
         return;
       }
+      record("playlist_add", song);
       commit(
         (previous) => ({
           ...previous,
@@ -288,7 +292,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       );
       success("Added to playlist", song.title);
     },
-    [commit, state.playlists, success, toast]
+    [commit, record, state.playlists, success, toast]
   );
 
   const removeFromPlaylist = useCallback(

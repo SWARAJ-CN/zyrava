@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useToast } from "@/components/providers/ToastProvider";
+import { useTaste } from "@/components/providers/TasteProvider";
 import {
   IMPORT_LIMITS,
   collectAudioFiles,
@@ -167,6 +168,8 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
    * Streams one catalogue song onto the device. `quiet` keeps a bulk run from
    * raising a toast per track — the caller summarises instead.
    */
+  const { record } = useTaste();
+
   const saveOne = useCallback(
     async (song: Song, quiet: boolean): Promise<"saved" | "skipped" | "failed"> => {
       if (!song.streamUrl || savesRef.current.has(song.id)) return "skipped";
@@ -204,7 +207,8 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         await putTrack(track, blob);
         setDownloads(await listTracks("download"));
         if (!quiet) success("Saved on this device", `${track.title} · ${track.artist}`);
-        return "saved";
+        record("save", song, { pct: 1 });
+      return "saved";
       } catch (caught: unknown) {
         if (controller.signal.aborted) return "skipped";
         const message = caught instanceof Error && caught.message === NO_ROOM ? NO_ROOM : NOT_SAVABLE;
@@ -215,7 +219,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         markProgress(song.id, null);
       }
     },
-    [error, markProgress, readBody, success, toast]
+    [error, markProgress, readBody, record, success, toast]
   );
 
   const save = useCallback(

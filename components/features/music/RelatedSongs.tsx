@@ -5,10 +5,10 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/icons";
 import { useLibrary } from "@/components/providers/LibraryProvider";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
-import { rankRelated, relatedSeeds, tasteProfile, type RelatedPick } from "@/lib/related";
+import { tasteProfile, type RelatedPick } from "@/lib/related";
+import { buildRadioFor, type FetchPool } from "@/lib/taste";
 import type { Song } from "@/lib/saavn";
 
-const PER_SEED = 18;
 const PICKS = 10;
 /** A track's radio run is reused for a while — no refetch on panel reopen. */
 const TTL = 10 * 60 * 1000;
@@ -35,26 +35,20 @@ interface PagePayload {
 /** Live request for one seed id — a reopen during the fetch reuses it. */
 const inflight = new Map<string, Promise<RelatedPick[]>>();
 
-async function fetchRelated(song: Song, taste: Set<string>): Promise<RelatedPick[]> {
-  const seeds = relatedSeeds(song);
-  const batches = await Promise.all(
-    seeds.map((seed, index) =>
-      fetch(`/api/music/search?q=${encodeURIComponent(seed)}&limit=${PER_SEED}`, {
-        cache: "no-store",
-      })
-        .then((response) => (response.ok ? (response.json() as Promise<PagePayload>) : null))
-        .then((data) =>
-          (data?.songs ?? []).map((entry, position) => ({
-            song: entry,
-            // Flat rank across seeds: an artist hit outranks a mood filler.
-            seedRank: index * PER_SEED + position,
-          }))
-        )
-        .catch(() => [] as Array<{ song: Song; seedRank: number }>)
-    )
+/** One catalogue round trip, in the shape the engine asks for. */
+const searchPool: FetchPool = async (phrase, limit) => {
+  const response = await fetch(
+    `/api/music/search?q=${encodeURIComponent(phrase)}&limit=${limit}`,
+    { cache: "no-store" }
   );
+  if (!response.ok) return [];
+  const data = (await response.json()) as PagePayload;
+  return data.songs ?? [];
+};
 
-  return rankRelated(song, { pool: batches.flat(), limit: PICKS, taste });
+/** The same radio the home shelves build — one algorithm, two surfaces. */
+async function fetchRelated(song: Song, taste: Set<string>): Promise<RelatedPick[]> {
+  return buildRadioFor(song, taste, searchPool, PICKS);
 }
 
 /**

@@ -255,11 +255,24 @@ button,
    would otherwise win over a responsive `md:ps-*`. */
 @media (min-width: 48rem) {
   .dock-offset {
-    padding-inline-start: var(--dock-wide);
+    padding-inline-start: calc(var(--dock-wide) + 2rem);
   }
 
   .dock-offset--rail {
-    padding-inline-start: var(--dock-rail);
+    padding-inline-start: calc(var(--dock-rail) + 1.25rem);
+  }
+
+  /* The dock itself eases between rail and wide, and the page breathes with it
+     instead of snapping to a hard edge. */
+  .dock-offset,
+  .dock-offset--rail {
+    transition: padding-inline-start 0.3s var(--ease-out, ease);
+  }
+}
+
+@media (min-width: 64rem) {
+  .dock-offset {
+    padding-inline-start: calc(var(--dock-wide) + 3rem);
   }
 }
 

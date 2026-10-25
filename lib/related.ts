@@ -41,12 +41,12 @@ const LAMBDA = 0.74;
 /** Title overlap at which a track counts as another cut of the seed itself. */
 const TITLE_ECHO = 0.6;
 
-function normalize(value: string): string {
+export function normalize(value: string): string {
   return value.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 /** Meaningful words of a text field; bracketed packaging notes are dropped. */
-function tokenize(value: string): string[] {
+export function tokenize(value: string): string[] {
   return normalize(value)
     .replace(/\([^)]*\)|\[[^\]]*]/g, " ")
     .split(/[^\p{L}\p{N}]+/gu)
@@ -64,7 +64,7 @@ function baseTitle(song: Song): string {
 }
 
 /** Sørensen–Dice overlap: 1 for identical sets, 0 for disjoint ones. */
-function overlap(a: Set<string>, b: Set<string>): number {
+export function overlap(a: Set<string>, b: Set<string>): number {
   if (!a.size || !b.size) return 0;
   let shared = 0;
   for (const word of a) if (b.has(word)) shared += 1;
@@ -86,7 +86,7 @@ function yearOf(song: Song): number {
  * One song as the engine sees it: word sets per field, the language/era/length
  * scalars and a mood vector over the app's vibe taxonomy.
  */
-interface Profile {
+export interface Profile {
   song: Song;
   title: Set<string>;
   artist: Set<string>;
@@ -97,7 +97,7 @@ interface Profile {
   mood: number[];
 }
 
-function profileOf(song: Song): Profile {
+export function profileOf(song: Song): Profile {
   const text = normalize(
     `${song.title} ${song.artist} ${song.album} ${song.language}`
   );
@@ -126,7 +126,7 @@ function profileOf(song: Song): Profile {
   };
 }
 
-function cosine(a: number[], b: number[]): number {
+export function cosine(a: number[], b: number[]): number {
   let sum = 0;
   for (let index = 0; index < a.length; index += 1) sum += a[index] * b[index];
   return Math.min(1, Math.max(0, sum));
@@ -155,7 +155,7 @@ export interface RelatedPick {
  * Weighted similarity between two profiles: 1 is the same recording, 0 shares
  * nothing the catalogue knows about.
  */
-function breakdown(a: Profile, b: Profile): SimilarityBreakdown {
+export function breakdown(a: Profile, b: Profile): SimilarityBreakdown {
   const sameLanguage = a.language && b.language ? (a.language === b.language ? 1 : 0) : 0;
 
   // Absent metadata stays neutral instead of dragging the score to zero.
@@ -177,7 +177,7 @@ function breakdown(a: Profile, b: Profile): SimilarityBreakdown {
   };
 }
 
-function similarity(a: Profile, b: Profile): number {
+export function similarity(a: Profile, b: Profile): number {
   const parts = breakdown(a, b);
   return (
     WEIGHTS.artist * parts.artist +
@@ -209,7 +209,7 @@ function strongestReason(parts: SimilarityBreakdown): string {
 }
 
 /** The seed itself, or another cut of it — never a "related" result. */
-function isSameRecording(a: Profile, b: Profile): boolean {
+export function isSameRecording(a: Profile, b: Profile): boolean {
   return (
     a.song.id === b.song.id ||
     (overlap(a.title, b.title) >= 0.75 && (overlap(a.artist, b.artist) >= 0.5 || a.album.size === 0))
@@ -257,12 +257,76 @@ export interface RelatedInput {
   titleClones?: number;
 }
 
+/** One candidate as the diversifier sees it: a track, its profile, its rank. */
+export interface MmrItem {
+  song: Song;
+  profile: Profile;
+  /** Ranking score before diversification — what MMR trades against novelty. */
+  raw: number;
+  /** How much of the seed's own title this track repeats. */
+  echo?: number;
+}
+
+export interface MmrOptions {
+  limit?: number;
+  /** Max tracks per artist in the run. */
+  artistCap?: number;
+  /** Alternate cuts of the seed title worth keeping. */
+  titleClones?: number;
+}
+
+/**
+ * Greedy MMR: repeatedly take the candidate with the best trade-off between
+ * its own score and how redundant it is against what is already chosen, so a
+ * run reads as a scene rather than one artist's discography. A candidate that
+ * breaks the artist cap, repeats a title or overflows the clone budget is
+ * discounted rather than dropped, so a short list still fills.
+ */
+export function mmrSelect<T extends MmrItem>(candidates: T[], options: MmrOptions = {}): T[] {
+  const { limit = 10, artistCap = 2, titleClones = 1 } = options;
+  const picks: T[] = [];
+  const perArtist = new Map<string, number>();
+  const seenTitles = new Set<string>();
+  const remaining = [...candidates];
+  let clones = 0;
+
+  while (picks.length < limit && remaining.length) {
+    let bestIndex = 0;
+    let bestValue = -Infinity;
+    for (let index = 0; index < remaining.length; index += 1) {
+      const candidate = remaining[index];
+      const artistKey = normalize(candidate.song.artist);
+      const blocked =
+        (perArtist.get(artistKey) ?? 0) >= artistCap ||
+        seenTitles.has(baseTitle(candidate.song)) ||
+        ((candidate.echo ?? 0) >= TITLE_ECHO && clones >= titleClones);
+      // Redundancy = how similar it is to the closest track already chosen.
+      let redundancy = 0;
+      for (const picked of picks) {
+        redundancy = Math.max(redundancy, similarity(candidate.profile, picked.profile));
+      }
+      const value = LAMBDA * candidate.raw - (1 - LAMBDA) * redundancy - (blocked ? 1 : 0);
+      if (value > bestValue) {
+        bestValue = value;
+        bestIndex = index;
+      }
+    }
+    const [chosen] = remaining.splice(bestIndex, 1);
+    if (!chosen) break;
+    const artistKey = normalize(chosen.song.artist);
+    perArtist.set(artistKey, (perArtist.get(artistKey) ?? 0) + 1);
+    seenTitles.add(baseTitle(chosen.song));
+    if ((chosen.echo ?? 0) >= TITLE_ECHO) clones += 1;
+    picks.push(chosen);
+  }
+
+  return picks;
+}
+
 /**
  * Ranks the pool against `seed`: similarity, plus a bonus per seed that
  * surfaced the track, plus a flat taste bonus when the artist is already in
- * the library. Survivors then go through MMR, which discounts anything too
- * close to a track already picked, so the list reads as a scene rather than
- * one artist's discography.
+ * the library. Survivors then go through the diversifier.
  */
 export function rankRelated(seedSong: Song, input: RelatedInput): RelatedPick[] {
   const { pool, limit = 10, artistCap = 2, taste, titleClones = 1 } = input;
@@ -301,41 +365,7 @@ export function rankRelated(seedSong: Song, input: RelatedInput): RelatedPick[] 
     })
     .sort((a, b) => b.score - a.score);
 
-  const picks: typeof scored = [];
-  const perArtist = new Map<string, number>();
-  const seenTitles = new Set<string>();
-  const remaining = [...scored];
-  let clones = 0;
-
-  while (picks.length < limit && remaining.length) {
-    let bestIndex = 0;
-    let bestValue = -Infinity;
-    for (let index = 0; index < remaining.length; index += 1) {
-      const candidate = remaining[index];
-      const artistKey = normalize(candidate.song.artist);
-      const blocked =
-        (perArtist.get(artistKey) ?? 0) >= artistCap ||
-        seenTitles.has(baseTitle(candidate.song)) ||
-        (candidate.echo >= TITLE_ECHO && clones >= titleClones);
-      // Redundancy = how similar it is to the closest track already chosen.
-      let redundancy = 0;
-      for (const picked of picks) {
-        redundancy = Math.max(redundancy, similarity(candidate.profile, picked.profile));
-      }
-      const value = LAMBDA * candidate.raw - (1 - LAMBDA) * redundancy - (blocked ? 1 : 0);
-      if (value > bestValue) {
-        bestValue = value;
-        bestIndex = index;
-      }
-    }
-    const [chosen] = remaining.splice(bestIndex, 1);
-    if (!chosen) break;
-    const artistKey = normalize(chosen.song.artist);
-    perArtist.set(artistKey, (perArtist.get(artistKey) ?? 0) + 1);
-    seenTitles.add(baseTitle(chosen.song));
-    if (chosen.echo >= TITLE_ECHO) clones += 1;
-    picks.push(chosen);
-  }
+  const picks = mmrSelect(scored, { limit, artistCap, titleClones });
 
   return picks.map(({ song, score, reason }) => ({ song, score, reason }));
 }

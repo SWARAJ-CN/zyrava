@@ -11,6 +11,8 @@ import {
   type ReactNode,
 } from "react";
 import type { Song } from "@/lib/saavn";
+import { playbackKind } from "@/lib/taste";
+import { useTaste } from "@/components/providers/TasteProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
 import { playPad as firePad, type PadName } from "@/lib/dj/pads";
 
@@ -199,6 +201,8 @@ interface MusicPlayerValue {
   startQueue: (list: Song[], label: string, position: number) => void;
   /** Append the next batch to the running queue (deduped by track id). */
   appendQueue: (list: Song[]) => void;
+  /** Registers the handler asked for more tracks when a queue runs out. */
+  setQueueEnd: (handler: (() => boolean) | null) => void;
   togglePlay: () => void;
   stepTrack: (direction: 1 | -1) => void;
   seek: (seconds: number) => void;
@@ -1325,6 +1329,36 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     applyRouting();
   }, [eqGains, applyRouting]);
 
+  /* What the listener did to the track that just ended, and to the one
+   * starting. Every start path funnels through the track change, so the log
+   * gets one line per track instead of one per call site. */
+  const { record: recordTaste } = useTaste();
+  const tasteSongRef = useRef<Song | null>(null);
+  const queueEndRef = useRef<(() => boolean) | null>(null);
+  const pendingEndRef = useRef(false);
+  const tastePositionRef = useRef(0);
+  const tasteEndedRef = useRef(false);
+  const tasteDoneRef = useRef(false);
+
+  useEffect(() => {
+    const previous = tasteSongRef.current;
+    if (previous && previous.id !== current?.id) {
+      const duration = previous.duration || 0;
+      const pct = duration ? tastePositionRef.current / duration : 0;
+      recordTaste(
+        playbackKind(pct, tastePositionRef.current, tasteEndedRef.current),
+        previous,
+        { pct }
+      );
+    }
+    tastePositionRef.current = 0;
+    tasteEndedRef.current = false;
+    tasteDoneRef.current = false;
+    tasteSongRef.current = current ?? null;
+    if (current) recordTaste("play", current, { pct: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id]);
+
   // Load a fresh stream whenever the active track changes. The play path is
   // async because the analyser needs a CORS check on the stream host first.
   useEffect(() => {
@@ -1408,6 +1442,24 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id]);
 
+  /* A queue that ran out while waiting for more tracks moves the moment they
+   * arrive, so the listener hears one short beat instead of a stopped player. */
+  useEffect(() => {
+    if (!pendingEndRef.current || index + 1 >= queue.length) return;
+    const frame = requestAnimationFrame(() => {
+      if (!pendingEndRef.current) return;
+      pendingEndRef.current = false;
+      shouldPlayRef.current = true;
+      setIndex(index + 1);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [queue, index]);
+
+  /** The paged surfaces register their own "give me the next page" here. */
+  const setQueueEnd = useCallback((handler: (() => boolean) | null) => {
+    queueEndRef.current = handler;
+  }, []);
+
   // Keep the element's volume/mute in sync with the controls.
   useEffect(() => {
     const audio = audioRef.current;
@@ -1467,6 +1519,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
     }
     const last = lastTickRef.current;
+    tastePositionRef.current = time;
+    // A track that reaches its end counts as finished even if the tab closes
+    // before the element gets to report it.
+    const playing = tasteSongRef.current;
+    if (playing && !tasteDoneRef.current && playing.duration && time / playing.duration >= 0.9) {
+      tasteDoneRef.current = true;
+      recordTaste("complete", playing, { pct: time / playing.duration });
+    }
     // Only count genuine forward plays; big jumps (seeks) don't count.
     if (time > last && time - last < 5) {
       setListenedSeconds((seconds) => seconds + (time - last));
@@ -1484,7 +1544,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         djOut.gain.value = 1;
       }
     }
-  }, []);
+    // The taste recorder is a stable bound method; refs carry the rest.
+  }, [recordTaste]);
 
   // Release the audio graph when the provider unmounts (page teardown).
   useEffect(
@@ -1732,6 +1793,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const handleEnded = useCallback(() => {
     const audio = audioRef.current;
     if (!audio || !current) return;
+    const atEnd = index + 1 >= queue.length;
+    tasteEndedRef.current = true;
+    tastePositionRef.current = current.duration || audio.duration || tastePositionRef.current;
     if (repeat === "one") {
       audio.currentTime = 0;
       void audio.play().catch(() => {});
@@ -1744,8 +1808,25 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setIndex(random);
       return;
     }
+    if (atEnd) {
+      /* The run is out of tracks. Ask the surface that started it for more
+         first — a paged list walks into its next page here instead of
+         restarting from the top or sitting silent. */
+      const extended = queueEndRef.current?.() ?? false;
+      if (extended) {
+        pendingEndRef.current = true;
+        return;
+      }
+      if (queue.length === 1) {
+        // One track in the queue: jumping to "the next" is jumping to itself,
+        // which would not reload anything. Restart it where it stands.
+        audio.currentTime = 0;
+        void audio.play().catch(() => {});
+        return;
+      }
+    }
     shouldPlayRef.current = true;
-    setIndex(index + 1 >= queue.length ? 0 : index + 1);
+    setIndex(atEnd ? 0 : index + 1);
   }, [current, repeat, shuffle, queue, index]);
 
   const seek = useCallback((seconds: number) => {
@@ -1887,6 +1968,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       getAnalyser,
       startQueue,
       appendQueue,
+      setQueueEnd,
       togglePlay,
       stepTrack,
       seek,
@@ -1958,6 +2040,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       getAnalyser,
       startQueue,
       appendQueue,
+      setQueueEnd,
       togglePlay,
       stepTrack,
       seek,

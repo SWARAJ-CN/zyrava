@@ -6,6 +6,7 @@ import { AppChrome } from "@/components/AppChrome";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { LibraryProvider } from "@/components/providers/LibraryProvider";
+import { TasteProvider } from "@/components/providers/TasteProvider";
 import { OfflineProvider } from "@/components/providers/OfflineProvider";
 import { PlaybackSessionGuard } from "@/components/providers/PlaybackSessionGuard";
 import { PwaProvider } from "@/components/providers/PwaProvider";
@@ -92,7 +93,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <ThemeProvider>
               <AuthProvider>
                 <ToastProvider>
-                  <OfflineProvider>
+                  <TasteProvider>
+                    <OfflineProvider>
                     <MusicPlayerProvider>
                       <LibraryProvider>
                         <PlaybackSessionGuard />
@@ -101,6 +103,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                       </LibraryProvider>
                     </MusicPlayerProvider>
                   </OfflineProvider>
+                  </TasteProvider>
                 </ToastProvider>
               </AuthProvider>
             </ThemeProvider>

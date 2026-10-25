@@ -84,6 +84,42 @@ export const VIBES: Vibe[] = [
     queries: ["classical songs", "carnatic instrumental", "raga fusion"],
     match: ["raga", "carnatic", "hindustani", "sitar", "veena", "classical", "tuppan"],
   },
+  {
+    value: "focus",
+    label: "Focus",
+    queries: ["study focus music", "lofi beats study", "instrumental work"],
+    match: ["study", "focus", "lofi", "concentration", "calm", "piano", "ambient"],
+  },
+  {
+    value: "monsoon",
+    label: "Monsoon",
+    queries: ["rain songs", "monsoon melodies", "barish"],
+    match: ["rain", "barsa", "barish", "monsoon", "neer", "megha", "thudum"],
+  },
+  {
+    value: "celebration",
+    label: "Celebration",
+    queries: ["wedding songs", "celebration hits", "festive songs"],
+    match: ["wedding", "celebr", "fest", "marriage", "kalyanam", "mandap", "naadu"],
+  },
+  {
+    value: "retro",
+    label: "Retro",
+    queries: ["old classic hits", "retro songs", "70s 80s melodies"],
+    match: ["retro", "classic", "old", "vintage", "70s", "80s", "golden"],
+  },
+  {
+    value: "acoustic",
+    label: "Acoustic",
+    queries: ["unplugged songs", "acoustic covers", "guitar version"],
+    match: ["acoustic", "unplugged", "guitar", "cover", "stripped", "lullaby"],
+  },
+  {
+    value: "energy",
+    label: "High energy",
+    queries: ["mass energy songs", "anthem beats", "gym hype songs"],
+    match: ["mass", "anthem", "energy", "power", "hype", "fight", "kand"],
+  },
 ];
 
 /**

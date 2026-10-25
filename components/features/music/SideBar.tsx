@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
+import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useLibrary } from "@/components/providers/LibraryProvider";
@@ -852,17 +853,24 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
  * wider ones, and a slide-in drawer on phones. The header carries the dock's
  * own open/close switch, so it never moves out of reach.
  */
+/** How long the drawer's exit runs before the modal itself closes. */
+const DRAWER_MS = 260;
+
 export function SideBar() {
   const { sidebarWide, setSidebarWide, mobileNavOpen, setMobileNavOpen } = useMusicPlayer();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
-  // Drive the native modal so Escape, focus trapping and the backdrop are
-  // free — only the panel itself needs styling.
+  /* The native modal gives Escape, focus trapping and the backdrop for free;
+   * only the panel is styled — and it slides, so the drawer leaves the way it
+   * arrived instead of vanishing mid-gesture. */
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (mobileNavOpen && !dialog.open) dialog.showModal();
-    else if (!mobileNavOpen && dialog.open) dialog.close();
+    else if (!mobileNavOpen && dialog.open) {
+      const timer = setTimeout(() => dialog.close(), DRAWER_MS);
+      return () => clearTimeout(timer);
+    }
   }, [mobileNavOpen]);
 
   // The drawer is a phone affordance; a resize to desktop closes it.
@@ -912,9 +920,19 @@ export function SideBar() {
         }}
         className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-full max-w-none border-0 bg-transparent p-0 backdrop:bg-black/60 backdrop:backdrop-blur-sm md:hidden"
       >
-        <div className="flex h-full w-[min(19.5rem,86vw)] flex-col border-e border-dock-line bg-dock shadow-pop">
-          <DockBody wide mobile />
-        </div>
+        <AnimatePresence>
+          {mobileNavOpen ? (
+            <motion.div
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", stiffness: 420, damping: 40 }}
+              className="flex h-full w-[min(19.5rem,86vw)] flex-col border-e border-dock-line bg-dock shadow-pop"
+            >
+              <DockBody wide mobile />
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
       </dialog>
     </>
   );
