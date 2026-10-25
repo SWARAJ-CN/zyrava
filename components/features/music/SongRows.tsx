@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Icon } from "@/components/ui/icons";
 import { useLibrary } from "@/components/providers/LibraryProvider";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
+import { useOffline } from "@/components/providers/OfflineProvider";
 import { Waveform } from "@/components/features/music/Waveform";
 import { cn } from "@/lib/cn";
 import type { Song } from "@/lib/saavn";
@@ -14,6 +15,12 @@ function formatSeconds(value: number): string {
   const seconds = Math.round(value % 60);
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
+
+/** The round icon button every row action is built from. */
+const ROW_ACTION =
+  "grid size-8 flex-none place-items-center rounded-full text-muted transition-colors hover:bg-surface-secondary hover:text-foreground";
+/** In the table variant the actions wait for the pointer, until one is engaged. */
+const ROW_UNTIL_TOUCHED = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100";
 
 /** Column captions for the table variant — sits directly above <SongRows table>. */
 export function SongTableHead({ album = true }: { album?: boolean }) {
@@ -31,27 +38,71 @@ export function SongTableHead({ album = true }: { album?: boolean }) {
 }
 
 /**
+ * Puts a copy of the track on this device, or takes it back off. Every list
+ * offers it, so it lives beside the rows instead of inside one view.
+ */
+export function SaveToDevice({ song, table = false }: { song: Song; table?: boolean }) {
+  const { savedIds, progress, save, removeSaved } = useOffline();
+  const saved = savedIds.has(song.id);
+  const busy = progress[song.id];
+
+  return (
+    <button
+      type="button"
+      onClick={() => (saved ? void removeSaved(song.id) : void save(song))}
+      aria-pressed={saved}
+      aria-label={
+        saved ? `Take ${song.title} off this device` : `Save ${song.title} on this device`
+      }
+      title={busy ? "Saving…" : saved ? "On this device" : "Save on this device"}
+      className={cn(
+        ROW_ACTION,
+        saved && "text-brand",
+        table && !saved && ROW_UNTIL_TOUCHED
+      )}
+    >
+      {busy ? (
+        <Icon name="loader" className="size-4 motion-safe:animate-spin" />
+      ) : (
+        <Icon name="download" className="size-4" />
+      )}
+    </button>
+  );
+}
+
+/**
  * Shared track row for the Liked and Playlist home tabs.
  *
  * `table` switches on the Spotify presentation — numbered rows whose index
  * becomes a play button on hover, an album column, actions that only appear
  * with the pointer and the current track marked in the brand colour. Without
  * it the rows stay exactly as the compact lists render them today.
+ *
+ * `device` marks a list of audio that already lives here — the saved copies
+ * and imported files. Those rows have nothing to save again, and liking or
+ * filing one would write a row another device cannot resolve, so the account
+ * actions step aside for a single "take it off" button.
  */
 export function SongRows({
   songs,
   label,
   onRemove,
   table = false,
+  device = false,
+  album = true,
 }: {
   songs: Song[];
   label: string;
   onRemove?: (song: Song) => void;
   table?: boolean;
+  device?: boolean;
+  /** Keep in step with <SongTableHead album> or the columns drift apart. */
+  album?: boolean;
 }) {
   const { startQueue, current, playing, togglePlay, visualizerReady, getAnalyser } =
     useMusicPlayer();
   const { isLiked, toggleLike, openPicker } = useLibrary();
+  const { exportCopy } = useOffline();
 
   /** Live bars, with the CSS mimic when CORS keeps the analyser away. */
   const renderWave = (className: string, tone: string) => (
@@ -76,7 +127,19 @@ export function SongRows({
     <div className={cn("flex flex-col", table ? "gap-0.5 pt-1" : "gap-0.5")}>
       {songs.map((song, index) => {
         const active = current?.id === song.id;
-        const actions = (
+        /** Rows of device audio: the copy is already here, so the button hands
+         *  it back out as a file instead of saving it again. */
+        const actions = device ? (
+          <button
+            type="button"
+            onClick={() => void exportCopy(song.id)}
+            aria-label={`Export a copy of ${song.title}`}
+            title="Export a copy"
+            className={cn(ROW_ACTION, table && ROW_UNTIL_TOUCHED)}
+          >
+            <Icon name="download" className="size-4" />
+          </button>
+        ) : (
           <>
             <button
               type="button"
@@ -87,8 +150,8 @@ export function SongRows({
               }
               title={isLiked(song) ? "Liked" : "Like this song"}
               className={cn(
-                "grid size-8 flex-none place-items-center rounded-full text-muted transition-colors hover:bg-surface-secondary hover:text-foreground",
-                table && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                ROW_ACTION,
+                table && ROW_UNTIL_TOUCHED,
                 isLiked(song) && !table && "opacity-100"
               )}
             >
@@ -102,13 +165,11 @@ export function SongRows({
               onClick={() => openPicker(song)}
               aria-label={`Add ${song.title} to a playlist`}
               title="Add to playlist"
-              className={cn(
-                "grid size-8 flex-none place-items-center rounded-full text-muted transition-colors hover:bg-surface-secondary hover:text-foreground",
-                table && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-              )}
+              className={cn(ROW_ACTION, table && ROW_UNTIL_TOUCHED)}
             >
               <Icon name="plus" className="size-4" />
             </button>
+            <SaveToDevice song={song} table={table} />
           </>
         );
 
@@ -198,7 +259,7 @@ export function SongRows({
               </span>
             </button>
 
-            {table ? (
+            {table && album ? (
               <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted lg:block">
                 {song.album || "—"}
               </span>
@@ -221,7 +282,7 @@ export function SongRows({
                     type="button"
                     onClick={() => onRemove(song)}
                     aria-label={`Remove ${song.title}`}
-                    title="Remove from this playlist"
+                    title={device ? "Remove from this device" : "Remove from this playlist"}
                     className="grid size-8 flex-none place-items-center rounded-full text-faint-foreground opacity-0 transition-colors hover:bg-surface-secondary hover:text-danger group-hover:opacity-100"
                   >
                     <Icon name="trash" className="size-4" />
@@ -236,7 +297,7 @@ export function SongRows({
                     type="button"
                     onClick={() => onRemove(song)}
                     aria-label={`Remove ${song.title}`}
-                    title="Remove from this playlist"
+                    title={device ? "Remove from this device" : "Remove from this playlist"}
                     className="grid size-8 flex-none place-items-center rounded-full text-faint-foreground transition-colors hover:bg-surface-secondary hover:text-danger"
                   >
                     <Icon name="x" className="size-4" />

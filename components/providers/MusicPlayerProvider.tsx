@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Song } from "@/lib/saavn";
+import { useOffline } from "@/components/providers/OfflineProvider";
 import { playPad as firePad, type PadName } from "@/lib/dj/pads";
 
 /* ------------------------------------------------------------------ *
@@ -310,6 +311,7 @@ function driveCurve(amount: number): Float32Array<ArrayBuffer> {
  * hand the OS lock screen / mini-player controls.
  */
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
+  const { openPlaybackUrl } = useOffline();
   const [queue, setQueue] = useState<Song[]>([]);
   const [queueLabel, setQueueLabel] = useState("");
   const [index, setIndex] = useState(-1);
@@ -1181,6 +1183,37 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setPlayerError(null);
 
     const startStream = async () => {
+      /** Points the element at `src` and resumes wherever transport left off. */
+      const arm = (source: string) => {
+        audio.src = source;
+        audio.playbackRate = rateRef.current;
+        audio.load();
+        if (!shouldPlayRef.current) return;
+        audioContextRef.current?.resume().catch(() => {});
+        // Fresh track: the crossfade envelope starts wide open.
+        if (djOutRef.current) djOutRef.current.gain.value = 1;
+        audio.play().catch(() => {
+          setPlayerError("Streaming was interrupted — press play to retry.");
+          setPlaying(false);
+        });
+      };
+
+      // A copy held on this device is an object URL: no handshake, no probe,
+      // and being same-origin it is analyserable too.
+      if (current.offline) {
+        const local = await openPlaybackUrl(current.offline.id);
+        if (cancelled) return;
+        if (!local) {
+          setPlayerError("This saved copy is no longer on this device.");
+          setPlaying(false);
+          return;
+        }
+        audio.crossOrigin = "anonymous";
+        setVisualizerReady(Boolean(ensureGraph()));
+        arm(local);
+        return;
+      }
+
       let hostname = "";
       try {
         hostname = new URL(current.streamUrl).hostname;
@@ -1202,18 +1235,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // falls back to its CSS mimic.
         setVisualizerReady(false);
       }
-      audio.src = current.streamUrl;
-      audio.playbackRate = rateRef.current;
-      audio.load();
-      if (shouldPlayRef.current) {
-        audioContextRef.current?.resume().catch(() => {});
-        // Fresh track: the crossfade envelope starts wide open.
-        if (djOutRef.current) djOutRef.current.gain.value = 1;
-        audio.play().catch(() => {
-          setPlayerError("Streaming was interrupted — press play to retry.");
-          setPlaying(false);
-        });
-      }
+      arm(current.streamUrl);
     };
 
     void startStream();
@@ -1858,7 +1880,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         onEnded={handleEnded}
         onError={() => {
           if (current) {
-            setPlayerError("This track could not be streamed — try another one.");
+            setPlayerError(
+              current.offline
+                ? "This saved copy is no longer on this device."
+                : "This track could not be streamed — try another one."
+            );
             setPlaying(false);
           }
         }}

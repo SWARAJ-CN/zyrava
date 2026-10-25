@@ -1,11 +1,13 @@
 "use client";
 
 import { Icon } from "@/components/ui/icons";
-import { CollectionHero, RoundPlay } from "@/components/features/music/CollectionHero";
+import { CollectionHero, OutlineAction, RoundPlay } from "@/components/features/music/CollectionHero";
 import { SongRows, SongTableHead } from "@/components/features/music/SongRows";
 import { useLibrary } from "@/components/providers/LibraryProvider";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
+import { useOffline } from "@/components/providers/OfflineProvider";
 import { useToast } from "@/components/providers/ToastProvider";
+import { cn } from "@/lib/cn";
 import { formatRuntime } from "@/lib/format";
 import type { Song } from "@/lib/saavn";
 
@@ -18,6 +20,7 @@ export function LikedView() {
   const { liked } = useLibrary();
   const { startQueue, shuffle, toggleShuffle } = useMusicPlayer();
   const { toast } = useToast();
+  const { savedIds, progress, saveAll } = useOffline();
 
   const playAll = () => {
     if (!liked.length) {
@@ -43,6 +46,8 @@ export function LikedView() {
   };
 
   const length = formatRuntime(totalSeconds(liked));
+  const allSaved = liked.length > 0 && liked.every((song) => savedIds.has(song.id));
+  const saving = Object.keys(progress).length > 0;
 
   return (
     <section className="mt-8">
@@ -58,19 +63,29 @@ export function LikedView() {
         <RoundPlay onClick={playAll} disabled={!liked.length} label="Play all liked songs">
           <Icon name="play" size={18} className="fill-current" />
         </RoundPlay>
-        <button
-          type="button"
+        <OutlineAction
           onClick={shufflePlay}
           disabled={!liked.length}
-          aria-label="Shuffle liked songs"
-          title="Shuffle"
-          className={
-            "grid size-12 place-items-center rounded-full border border-separator text-muted transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40" +
-            (shuffle ? " text-brand" : "")
-          }
+          active={shuffle}
+          label="Shuffle liked songs"
         >
           <Icon name="shuffle" className="size-4.5" />
-        </button>
+        </OutlineAction>
+        <OutlineAction
+          onClick={() => void saveAll(liked)}
+          disabled={!liked.length || allSaved}
+          active={allSaved}
+          label={
+            allSaved
+              ? "Every liked song is on this device"
+              : "Keep every liked song on this device"
+          }
+        >
+          <Icon
+            name={saving ? "loader" : "download"}
+            className={cn("size-4.5", saving && "motion-safe:animate-spin")}
+          />
+        </OutlineAction>
       </CollectionHero>
 
       <div className="mt-4 rounded-xl border border-separator bg-surface p-2 sm:p-3">

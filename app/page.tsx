@@ -13,6 +13,9 @@ import { NowPlayingPanel } from "@/components/features/music/NowPlayingPanel";
 import { SearchWithSuggestions } from "@/components/features/music/SearchWithSuggestions";
 import { PlaylistsView } from "@/components/features/music/PlaylistsView";
 import { LikedView } from "@/components/features/music/LikedView";
+import { DownloadsView, OfflineView } from "@/components/features/music/DeviceViews";
+import { SaveToDevice } from "@/components/features/music/SongRows";
+import { ImportSongsModal } from "@/components/features/music/ImportSongsModal";
 import { PlaylistStrip } from "@/components/features/music/PlaylistStrip";
 import { VIBES } from "@/components/features/music/filters";
 import { REGIONS } from "@/components/features/music/regions";
@@ -20,6 +23,7 @@ import { rankSongs } from "@/lib/recommend";
 import { Waveform } from "@/components/features/music/Waveform";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import { useLibrary } from "@/components/providers/LibraryProvider";
+import { useOffline } from "@/components/providers/OfflineProvider";
 import { cn } from "@/lib/cn";
 import { dedupeSongs, songFingerprint, type Song } from "@/lib/saavn";
 
@@ -41,9 +45,20 @@ const HOME_TABS = [
   { value: "songs", label: "Songs" },
   { value: "playlists", label: "Playlists" },
   { value: "liked", label: "Liked songs" },
+  { value: "downloads", label: "Downloads" },
+  { value: "offline", label: "Offline" },
 ] as const;
 
 type HomeTab = (typeof HOME_TABS)[number]["value"];
+
+/** The quiet word at the end of the tab bar, one per panel. */
+const TAB_EYEBROW: Record<HomeTab, string> = {
+  songs: "Catalogue",
+  playlists: "Collections",
+  liked: "Saved",
+  downloads: "On this device",
+  offline: "Your files",
+};
 
 const GRID_COLS: Record<Exclude<ViewMode, "list">, string> = {
   small: "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6",
@@ -76,6 +91,7 @@ export default function MusicPage() {
   const [attempt, setAttempt] = useState(0);
   const [view, setView] = useState<ViewMode>(DEFAULT_VIEW);
   const [homeTab, setHomeTab] = useState<HomeTab>("songs");
+  const [importOpen, setImportOpen] = useState(false);
 
   /* Multi-check filters — languages and "why am I listening" vibes. An empty
    * language set falls back to the active region, empty vibes to plain hits. */
@@ -113,6 +129,14 @@ export default function MusicPage() {
   } = useMusicPlayer();
 
   const { isLiked, toggleLike, openPicker } = useLibrary();
+  const { locals } = useOffline();
+
+  /** First look at the Offline tab is the import pitch — an empty list alone
+   *  would just read as a broken feature. */
+  const openTab = (value: HomeTab) => {
+    setHomeTab(value);
+    if (value === "offline" && !locals.length) setImportOpen(true);
+  };
 
   const baseRegion = useMemo(
     () => REGIONS.find((candidate) => candidate.label === term) ?? REGIONS[0],
@@ -635,7 +659,7 @@ export default function MusicPage() {
             <button
               key={entry.value}
               type="button"
-              onClick={() => setHomeTab(entry.value)}
+              onClick={() => openTab(entry.value)}
               aria-current={active || undefined}
               className={cn(
                 "relative -mb-px h-10 shrink-0 whitespace-nowrap border-b-2 px-3.5 text-[13px] font-semibold transition-colors",
@@ -649,7 +673,7 @@ export default function MusicPage() {
           );
         })}
         <span className="ms-auto hidden shrink-0 pb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-faint-foreground sm:block">
-          {homeTab === "songs" ? "Catalogue" : homeTab === "playlists" ? "Collections" : "Saved"}
+          {TAB_EYEBROW[homeTab]}
         </span>
       </nav>
 
@@ -969,7 +993,7 @@ export default function MusicPage() {
                       onClick={() => playFromPage(songIndex)}
                       aria-label={`Play ${song.title} by ${song.artist}`}
                       className={cn(
-                        "group flex min-h-[68px] w-full items-center gap-3 rounded-lg pe-24 ps-2 py-2 text-start transition-all duration-150 hover:bg-surface-secondary sm:ps-3",
+                        "group flex min-h-[68px] w-full items-center gap-3 rounded-lg pe-28 ps-2 py-2 text-start transition-all duration-150 hover:bg-surface-secondary sm:ps-3",
                         active && "bg-accent-soft"
                       )}
                     >
@@ -1052,6 +1076,7 @@ export default function MusicPage() {
                       >
                         <Icon name="plus" className="size-4" />
                       </button>
+                      <SaveToDevice song={song} />
                     </div>
                   </div>
                 );
@@ -1179,9 +1204,15 @@ export default function MusicPage() {
         </>
       ) : homeTab === "playlists" ? (
         <PlaylistsView query={playlistQuery} />
-      ) : (
+      ) : homeTab === "liked" ? (
         <LikedView />
-      )}
+      ) : homeTab === "downloads" ? (
+        <DownloadsView />
+      ) : homeTab === "offline" ? (
+        <OfflineView onImport={() => setImportOpen(true)} />
+      ) : null}
+
+      <ImportSongsModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   );
 }

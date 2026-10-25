@@ -147,3 +147,12 @@ export function formatRuntime(seconds: number): string {
   const minutes = Math.round((total % 3600) / 60);
   return hours ? `${hours} hr ${minutes} min` : `${minutes} min`;
 }
+
+/** How much room audio takes on the device: 4.2 MB. */
+export function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 KB";
+  const units = ["B", "KB", "MB", "GB"];
+  const step = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024)));
+  const scaled = value / 1024 ** step;
+  return `${scaled >= 100 || step === 0 ? Math.round(scaled) : scaled.toFixed(1)} ${units[step]}`;
+}

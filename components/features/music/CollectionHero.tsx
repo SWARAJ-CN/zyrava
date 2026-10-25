@@ -24,7 +24,7 @@ export function CollectionHero({
   title: string;
   meta: string;
   image?: string;
-  glyph?: "list" | "heart" | "music";
+  glyph?: "list" | "heart" | "music" | "download";
   tone?: "brand" | "plain";
   /** Bleeds to the container's edges — for headers inside a dialog. */
   flush?: boolean;
@@ -99,6 +99,38 @@ export function RoundPlay({
       aria-label={label}
       title={label}
       className="grid size-12 place-items-center rounded-full bg-accent text-accent-foreground shadow-pop transition-transform duration-150 hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-40"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** The quiet companion beside <RoundPlay> — shuffle, save, import. */
+export function OutlineAction({
+  onClick,
+  disabled,
+  active,
+  label,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  /** Holds the brand colour while the action is engaged. */
+  active?: boolean;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className={cn(
+        "grid size-12 place-items-center rounded-full border border-separator text-muted transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40",
+        active && "text-brand"
+      )}
     >
       {children}
     </button>

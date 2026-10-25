@@ -25,6 +25,9 @@ const API_BASES = rawBase
   ? rawBase.split(",").map((base) => base.trim().replace(/\/+$/, "")).filter(Boolean)
   : [];
 
+/** Where a track's audio lives when it is already on this device. */
+export type OfflineSource = "download" | "local";
+
 export interface Song {
   id: string;
   title: string;
@@ -42,6 +45,11 @@ export interface Song {
   streamUrl: string;
   /** Canonical JioSaavn page, used for the "open externally" affordance. */
   pageUrl: string;
+  /**
+   * Set for device-local audio, which has no stream to point at. The player
+   * resolves this to an object URL instead of reading `streamUrl`.
+   */
+  offline?: { kind: OfflineSource; id: string };
 }
 
 export class MusicApiError extends Error {
