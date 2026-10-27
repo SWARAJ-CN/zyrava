@@ -60,16 +60,21 @@ export function Recommendations() {
 
   const count = mix?.picks.length ?? 0;
   // Silent until there is something to show: no empty state, no placeholder prose.
+  // The wrapper keeps a one-pixel box even when there is nothing to render — an
+  // element with no box never intersects, so a hidden shell would never be able
+  // to ask for its first build.
   if (!count && !rows.length) {
     return (
-      <div ref={cardRef} hidden={!building} className={building ? "mt-5" : "hidden"}>
+      <div ref={cardRef} className="mt-5">
         {building ? (
           <Card id="for-you">
             <CardContent className="p-3 sm:p-4">
               <Skeleton className="h-28 w-full rounded-xl" />
             </CardContent>
           </Card>
-        ) : null}
+        ) : (
+          <span aria-hidden className="block h-px w-full" />
+        )}
       </div>
     );
   }

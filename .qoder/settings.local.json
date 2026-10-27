@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status --short | head -50 && echo \"---LOG---\" && git log --oneline -10 && echo \"---STASH---\" && git stash list)",
+      "Bash(cat package.json | head -40)",
+      "Bash(npx tsc --noEmit 2>&1 | tail -20; echo \"---LINT---\"; npx eslint components/features/music/Recommendations.tsx 2>&1 | tail -20)",
+      "Bash(grep -rn \"Recommendations\" --include=*.tsx --include=*.ts app components | grep -v \"features/music/Recommendations.tsx\")",
+      "Bash(cd /home/kali/ZYRAVA && ls && echo \"---\" && git status --short | head -30 && echo \"---TASTE---\" && ls -la client/lib/taste* client/components/providers/TasteProvider.tsx 2>/dev/null)",
+      "Bash(cd /home/kali/ZYRAVA && ls server && echo \"---HISTORY---\" && cat client/lib/history.ts | head -80)",
+      "Bash(cd /home/kali/ZYRAVA/server/backend && ls && echo \"---ROUTES---\" && grep -rn \"history\" --include=*.ts --include=*.js -l . 2>/dev/null | grep -v node_modules | head -20)",
+      "Bash(git show 4015df1 --stat --oneline | head -30 && echo \"===DIFF \\(TasteProvider only\\)===\" && git show 4015df1 -- components/providers/TasteProvider.tsx | head -80)",
+      "Bash(npx tsc --noEmit 2>&1 | grep -v \"npm notice\" | tail -20; echo \"---LINT---\"; npx eslint components/providers/TasteProvider.tsx components/features/music/Recommendations.tsx 2>&1 | tail -20; echo \"exit=$?\")",
+      "Bash(cd /home/kali/ZYRAVA/client && \\(npx next dev -p 3111 > /tmp/zyrava-dev.log 2>&1 &\\) && sleep 12 && curl -s -o /tmp/home.html -w \"http=%{http_code} bytes=%{size_download}\\\\n\" http://localhost:3111/ ; grep -iE \"error|unhandled|failed\" /tmp/zyrava-dev.log | head -10)",
+      "Bash(grep -o 'aria-hidden[^>]*h-px[^>]*' /tmp/home.html | head -3; echo \"---for-you---\"; grep -c 'for-you' /tmp/home.html; echo \"---LOGTAIL---\"; tail -5 /tmp/zyrava-dev.log)",
+      "Bash(grep -o 'class=\"block h-px w-full\"[^<]*<' /tmp/home.html | head -3; echo \"count=$\\(grep -c 'block h-px w-full' /tmp/home.html\\)\"; pkill -f \"next dev -p 3111\" ; echo \"dev server stopped\")",
+      "Bash(pgrep -fa \"next dev\" | head -5; echo \"---\"; curl -s -m 2 -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3111/ || echo \"port 3111 closed\")",
+      "Bash(ls -la lib/related.ts lib/history.ts lib/taste.ts 2>&1; echo \"=== record call sites ===\"; grep -rn \"record\\(\\\\|recordTaste\\(\\\\|recordSearch\\(\" --include=*.ts --include=*.tsx components app | grep -v \"lib/taste.ts\" | head -30; echo \"=== TODO/FIXME in taste pipeline ===\"; grep -rn \"TODO\\\\|FIXME\\\\|not implemented\\\\|placeholder\" lib/taste.ts lib/related.ts lib/history.ts components/providers/TasteProvider.tsx components/features/music/Recommendations.tsx | head)",
+      "Bash(grep -rn \"playbackKind\" --include=*.ts --include=*.tsx . | grep -v node_modules; echo \"=== player context ===\"; sed -n '1330,1370p' components/providers/MusicPlayerProvider.tsx; echo \"=== 1515,1535 ===\"; sed -n '1515,1535p' components/providers/MusicPlayerProvider.tsx)",
+      "Bash(cd /home/kali/ZYRAVA/server/backend && grep -n \"score\\\\|plays\\\\|skips\\\\|eid\" src/services/historyService.js | head -40)",
+      "Bash(sed -n '15,30p' /home/kali/ZYRAVA/server/backend/src/services/historyService.js)",
+      "Read(//home/kali/ZYRAVA/server/backend/src/services/**)",
+      "Bash(npx tsc --noEmit 2>&1 | grep -v \"npm notice\" | tail -15; echo \"tsc_exit=$?\"; npx eslint components/providers/MusicPlayerProvider.tsx components/providers/TasteProvider.tsx components/features/music/Recommendations.tsx 2>&1 | tail -15; echo \"lint_exit=$?\"; git diff --stat)",
+      "Bash(\\(npx next dev -p 3112 > /tmp/zyrava-dev2.log 2>&1 &\\) ; sleep 12; curl -s -o /tmp/home2.html -w \"http=%{http_code}\\\\n\" http://localhost:3112/; grep -iE \"error|failed to compile\" /tmp/zyrava-dev2.log | head -5; echo \"shell=$\\(grep -c 'block h-px w-full' /tmp/home2.html\\)\"; kill $\\(pgrep -f \"next dev -p 3112\" | head -1\\) 2>/dev/null; echo stopped)",
+      "Bash(curl -s -m 2 -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3112/ || echo \"closed\"; pgrep -f \"next dev\" >/dev/null && echo \"STILL RUNNING\" || echo \"no dev server\")",
+      "Bash(kill 247311 247324 247325 247337 2>/dev/null; sleep 2; pgrep -f \"next-server|next dev\" >/dev/null && echo \"STILL RUNNING\" || echo \"stopped\"; curl -s -m 2 -o /dev/null -w \"port=%{http_code}\\\\n\" http://localhost:3112/ || echo \"port closed\")",
+      "Bash(echo \"=== eventsToReady usage ===\"; grep -rn \"eventsToReady\\\\|buildSignature\\\\|coldStage\\\\|stage ===\" --include=*.ts --include=*.tsx components lib app | grep -v \"lib/taste.ts:\"; echo; echo \"=== taste exports never imported ===\"; for s in eventsToReady shownIds rememberShown playbackKind exploreShelf repeatShelf mixShelf radioShelf buildRadioFor; do n=$\\(grep -rn \"\\\\b$s\\\\b\" --include=*.ts --include=*.tsx components app lib | grep -vc \"lib/taste.ts\"\\); echo \"$s: $n\"; done)",
+      "Bash(echo \"=== stage/loading/lastShown consumers ===\"; grep -rn \"\\\\bstage\\\\b\\\\|\\\\bloading\\\\b\\\\|lastShown\" --include=*.tsx components app | grep -v \"providers/TasteProvider.tsx\" | grep -viE \"setLoading|loading=|isLoading|loading: \\(true|false\\)\" | head -12)",
+      "Bash(grep -rn \"RelatedSongs\\\\|Recommendations\\\\|for-you\" --include=*.tsx app components | grep -v \"^components/features/music/Recommendations.tsx:\\\\|^components/features/music/RelatedSongs.tsx:.*function RelatedSongs\" | head -20; echo \"=== RelatedSongs render location ===\"; grep -rn \"RelatedSongs\" components/features/music/NowPlaying.tsx 2>/dev/null || ls components/features/music | head -40)"
+    ]
+  }
+}

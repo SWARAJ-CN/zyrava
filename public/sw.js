@@ -6,10 +6,27 @@
  * artwork CDNs, RSC payloads — goes straight to the network, so a stale cache
  * can never serve an out-of-date page shell or someone else's audio.
  */
-const SHELL = "zyrava-shell-v1";
-const ASSETS = "zyrava-assets-v1";
+const SHELL = "zyrava-shell-v2";
+const ASSETS = "zyrava-assets-v2";
 
-self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    (async () => {
+      // A stamped copy of the shell, so a launched app with no network still
+      // opens on its first run rather than staring at a dinosaur.
+      try {
+        const response = await fetch("/", { cache: "no-store" });
+        if (response.ok) {
+          const cache = await caches.open(SHELL);
+          await cache.put("/index.html", response.clone());
+        }
+      } catch {
+        /* offline install — the first normal load will fill the shell */
+      }
+    })()
+  );
+  self.skipWaiting();
+});
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(

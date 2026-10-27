@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Song } from "@/lib/saavn";
+import { searchSongs } from "@/lib/saavn";
 import { playbackKind } from "@/lib/taste";
 import { useTaste } from "@/components/providers/TasteProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
@@ -312,6 +313,45 @@ function driveCurve(amount: number): Float32Array<ArrayBuffer> {
  */
 const PLAYBACK_RETRY_AFTER = [150, 700, 1800, 4000, 9000];
 
+/** Milliseconds between two watchdog checks of a playing track. */
+const WATCHDOG_EVERY = 6_000;
+
+/**
+ * A short silent clip, built on the spot. Covering an arbitrary CDN in one
+ * byte string would expire; a proper 16-bit PCM WAV of zeros needs no network
+ * and is the one thing autoplay-locked devices will start under any gesture.
+ */
+function makeSilentBlob(): string | null {
+  try {
+    const rate = 22050;
+    const frames = Math.floor(rate * 0.3);
+    const buffer = new ArrayBuffer(44 + frames * 2);
+    const view = new DataView(buffer);
+    const write = (offset: number, text: string) => {
+      for (let index = 0; index < text.length; index += 1) {
+        view.setUint8(offset + index, text.charCodeAt(index));
+      }
+    };
+    write(0, "RIFF");
+    view.setUint32(4, 36 + frames * 2, true);
+    write(8, "WAVE");
+    write(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    write(36, "data");
+    view.setUint32(40, frames * 2, true);
+    /* The sample data stays zeroed — the clip is silence, the element is open. */
+    return URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * WebKit on iOS is the engine that suspends an AudioContext once the app
  * leaves the foreground; the rest keep an audible one running. Only it needs
@@ -445,12 +485,58 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const shouldPlayRef = useRef(false);
   /** Whether the side preview's first auto-open has already happened. */
   const panelShownRef = useRef(false);
+  /** The DJ rack present between the mixer head and the output. */
+  const rackReadyRef = useRef(false);
+  const rackBuildingRef = useRef(false);
+  /** Built on demand by applyRouting and the DJ-engagement watcher. */
+  const ensureRackRef = useRef<() => void>(() => {});
+  /** Any DJ feature engaged — the mirror that decides the rack gets built. */
+  const djEngagedRef = useRef(false);
+  /** The loader for the active track — the stall watchdog re-runs it. */
+  const startStreamRef = useRef<(() => void) | null>(null);
+  /** Automatic re-arms the active track has already burned. */
+  const streamFailuresRef = useRef(0);
+  /** A freshly resolved stream URL for one whose link went bad. */
+  const freshUrlRef = useRef<string | null>(null);
+  const refreshingRef = useRef(false);
+  /** The active row as a render-stable mirror for interval callbacks. */
+  const currentRef = useRef<Song | null>(null);
+  /** The element opened by an in-gesture silent start (autoplay locks). */
+  const unlockedRef = useRef(false);
 
   useEffect(() => {
     eqGainsRef.current = eqGains;
   }, [eqGains]);
 
+  /** What the rack exists for right now — read by applyRouting and the loader. */
+  useEffect(() => {
+    djEngagedRef.current =
+      fx.echo > 0 ||
+      fx.reverb > 0 ||
+      fx.flanger > 0 ||
+      fx.chorus > 0 ||
+      fx.phaser > 0 ||
+      fx.drive > 0 ||
+      fx.roll > 0 ||
+      fx.stutter > 0 ||
+      sweep !== 0 ||
+      subDb !== 0 ||
+      compAmt > 0 ||
+      limiterOn ||
+      loudnessOn;
+  }, [fx, sweep, subDb, compAmt, limiterOn, loudnessOn]);
+
+  /** Opening any DJ feature builds the rack once — while the rack is closed
+   *  the feature simply has no nodes to land on, so this is the moment. */
+  useEffect(() => {
+    if (djEngagedRef.current && !rackReadyRef.current) ensureRackRef.current();
+  }, [fx, sweep, subDb, compAmt, limiterOn, loudnessOn]);
+
   const current = queue[index] ?? null;
+
+  useEffect(() => {
+    currentRef.current = current;
+  }, [current]);
 
   const getAnalyser = useCallback(() => analyserRef.current, []);
 
@@ -879,10 +965,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const eqOn = filtersRef.current.length > 0 && eqGainsRef.current.some((gain) => gain !== 0);
     const spaceOn =
       spatialModeRef.current !== "off" && spatialModeRef.current !== "stereo";
+    /**
+     * The heavy rack is opt-in now: anything that needs it builds it once, and
+     * until then the light path keeps running — plain playback carries no
+     * convolver, no compressors and no EQ, so weak devices stop glitching.
+     */
+    if ((eqOn || spaceOn || djEngagedRef.current) && !rackReadyRef.current) {
+      ensureRackRef.current();
+    }
     const target: AudioNode =
-      eqOn || spaceOn
-        ? filtersRef.current[0] ?? djInRef.current ?? context.destination
-        : djInRef.current ?? context.destination;
+      (eqOn || spaceOn) && filtersRef.current.length > 0
+        ? filtersRef.current[0]
+        : rackReadyRef.current
+          ? djInRef.current ?? context.destination
+          : djOutRef.current ?? context.destination;
     if (routeTargetRef.current === target) return; // unchanged route — no rewiring, no click
     if (routeTargetRef.current) {
       try {
@@ -900,9 +996,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Wires the audio graph exactly once: source → analyser tap + the mixer
-   * head (gain pre-amp → balance), which either drains straight into the
-   * speakers or through the effect chain (EQ → spatial → output). Creating a
+   * Wires the audio graph exactly once, in its light form: source → analyser
+   * tap + the mixer head (gain pre-amp → balance → low-cut) → master gain →
+   * speakers. The EQ/spatial/DJ rack is attached later by ensureRack(), the
+   * first time any of those features engages — so the plain player costs a
+   * handful of nodes instead of a convolver and two compressors, which is
+   * what used to glitch playback on weaker devices. Creating a
    * MediaElementSource twice throws, so this is guarded by the context ref.
    */
   const ensureGraph = useCallback((): AnalyserNode | null => {
@@ -926,6 +1025,99 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       source.connect(preamp);
       preamp.connect(panNode);
       panNode.connect(loCutNode);
+
+      /* Light path: head → master gain → speakers. djOut stays out front so
+         the Auto DJ crossfade envelope already has its endpoint. */
+      const djOut = context.createGain();
+      djOut.gain.value = 1;
+      loCutNode.connect(djOut);
+      djOut.connect(context.destination);
+
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      // The analyser is a parallel tap off the source, so the wave mirrors
+      // what reaches the ear whether or not any effect is engaged.
+      source.connect(analyser);
+
+      // Stereo meter bridge: post-balance left / right RMS pair for the
+      // console's VU meters — fan-out off the balance stage.
+      const meterSplit = context.createChannelSplitter(2);
+      const meterL = context.createAnalyser();
+      const meterR = context.createAnalyser();
+      meterL.fftSize = 1024;
+      meterR.fftSize = 1024;
+      meterL.smoothingTimeConstant = 0;
+      meterR.smoothingTimeConstant = 0;
+      panNode.connect(meterSplit);
+      meterSplit.connect(meterL, 0);
+      meterSplit.connect(meterR, 1);
+      metersRef.current = [meterL, meterR];
+
+      // Pads fire on this bus so effects never colour the one-tap sounds.
+      const padBus = context.createGain();
+      padBus.gain.value = 0.9;
+      padBus.connect(context.destination);
+      padBusRef.current = padBus;
+
+      audioContextRef.current = context;
+      sourceRef.current = source;
+      analyserRef.current = analyser;
+      preampNodeRef.current = preamp;
+      panNodeRef.current = panNode;
+      loCutNodeRef.current = loCutNode;
+      djOutRef.current = djOut;
+      djInRef.current = null;
+      filtersRef.current = [];
+      spaceInRef.current = null;
+      spaceOutRef.current = null;
+      fxStagesRef.current = null;
+      subShelfRef.current = null;
+      sweepLpRef.current = null;
+      sweepHpRef.current = null;
+      compRef.current = null;
+      limitRef.current = null;
+      loudLowRef.current = null;
+      loudHighRef.current = null;
+      stGainRef.current = null;
+      stDepthRef.current = null;
+      shaperRef.current = null;
+      routeTargetRef.current = djOut; // the wiring above, already in place
+      rackReadyRef.current = false;
+      rackBuildingRef.current = false;
+      // Saved sub/sweep/dynamics values ride along; on the light path they
+      // are null-guarded no-ops until the rack exists.
+      applyFX();
+      // Picks the route again — and builds the rack first when a DJ feature
+      // was left engaged from before the graph was rebuilt.
+      applyRouting();
+      return analyser;
+    } catch {
+      analyserRef.current = null;
+      return null;
+    }
+  }, [applyRouting, applyFX]);
+
+  /**
+   * Builds the heavy section in place: the EQ ladder → spatial section, plus
+   * the master DJ bus (sub shelf → sweep → FX slots → stutter → dynamics →
+   * loudness shelf). It splices between the mixer head and the existing djOut
+   * gain, so the light path above stands otherwise untouched. It runs at most
+   * once per context — a rebuild would need a disconnect mid-buffer, which
+   * clicks — and idle rack nodes barely cost anything kept around.
+   */
+  const ensureRack = useCallback((): boolean => {
+    const context = audioContextRef.current;
+    if (!context) return false;
+    if (rackReadyRef.current) return true;
+    if (rackBuildingRef.current) return false;
+    const output = djOutRef.current;
+    const head = loCutNodeRef.current;
+    if (!output || !head) return false;
+    rackBuildingRef.current = true;
+
+    try {
+      /* EQ — ten peaking filters wired into the effects path. */
       const filters = EQ_BANDS.map((band, bandIndex) => {
         const filter = context.createBiquadFilter();
         filter.type = "peaking";
@@ -934,13 +1126,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         filter.gain.value = eqGainsRef.current[bandIndex];
         return filter;
       });
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
       const spaceIn = context.createGain();
       const spaceOut = context.createGain();
-
-      // Effects chain: filters → spatial section → speakers.
+      // Effects chain: filters → spatial section → the DJ bus.
       let node: AudioNode = filters[0];
       for (let filterIndex = 1; filterIndex < filters.length; filterIndex += 1) {
         node.connect(filters[filterIndex]);
@@ -950,8 +1138,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
       /* ── DJ rack — the master bus every route drains into. ── */
       const djIn = context.createGain();
-      const djOut = context.createGain();
-      djOut.gain.value = 1;
 
       const subShelf = context.createBiquadFilter();
       subShelf.type = "lowshelf";
@@ -1101,9 +1287,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       /* Serial power chain: djIn → sub → sweep → FX slots → stutter →
          dynamics → loudness shelf → djOut. */
       let chain: AudioNode = djIn;
-      const link = (node: AudioNode) => {
-        chain.connect(node);
-        chain = node;
+      const link = (stage: AudioNode) => {
+        chain.connect(stage);
+        chain = stage;
       };
       link(subShelf);
       link(sweepLp);
@@ -1120,42 +1306,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       link(limit);
       link(loudLow);
       link(loudHigh);
-      link(djOut);
-      chain.connect(context.destination);
+      chain.connect(output);
       spaceOut.connect(djIn);
 
-      // Pads fire on this bus so effects never colour the one-tap sounds.
-      const padBus = context.createGain();
-      padBus.gain.value = 0.9;
-      padBus.connect(context.destination);
-      padBusRef.current = padBus;
+      // The head leaves the light path; applyRouting picks its target after.
+      try {
+        head.disconnect(output);
+      } catch {
+        // not wired
+      }
 
-      // The analyser is a parallel tap off the source, so the wave mirrors
-      // what reaches the ear whether or not any effect is engaged.
-      source.connect(analyser);
-
-      // Stereo meter bridge: post-balance left / right RMS pair for the
-      // console's VU meters — fan-out off the balance stage.
-      const meterSplit = context.createChannelSplitter(2);
-      const meterL = context.createAnalyser();
-      const meterR = context.createAnalyser();
-      meterL.fftSize = 1024;
-      meterR.fftSize = 1024;
-      meterL.smoothingTimeConstant = 0;
-      meterR.smoothingTimeConstant = 0;
-      panNode.connect(meterSplit);
-      meterSplit.connect(meterL, 0);
-      meterSplit.connect(meterR, 1);
-      metersRef.current = [meterL, meterR];
-
-      audioContextRef.current = context;
-      sourceRef.current = source;
-      preampNodeRef.current = preamp;
-      panNodeRef.current = panNode;
-      loCutNodeRef.current = loCutNode;
+      filtersRef.current = filters;
       djInRef.current = djIn;
-      djOutRef.current = djOut;
-      fxStagesRef.current = stages;
       subShelfRef.current = subShelf;
       sweepLpRef.current = sweepLp;
       sweepHpRef.current = sweepHp;
@@ -1163,22 +1325,30 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       limitRef.current = limit;
       loudLowRef.current = loudLow;
       loudHighRef.current = loudHigh;
+      fxStagesRef.current = stages;
       stGainRef.current = stGain;
       stDepthRef.current = stDepth;
       shaperRef.current = shaper;
-      applyFX();
-      filtersRef.current = filters;
-      analyserRef.current = analyser;
       spaceInRef.current = spaceIn;
       spaceOutRef.current = spaceOut;
+      routeTargetRef.current = null;
+      rackReadyRef.current = true;
+
       applySpatial();
+      applyFX();
       applyRouting();
-      return analyser;
+      return true;
     } catch {
-      analyserRef.current = null;
-      return null;
+      rackReadyRef.current = false;
+      return false;
+    } finally {
+      rackBuildingRef.current = false;
     }
   }, [applySpatial, applyRouting, applyFX]);
+
+  useEffect(() => {
+    ensureRackRef.current = ensureRack;
+  }, [ensureRack]);
 
   /* ── Background survival ──────────────────────────────────────────────
    * A track that stops in the background has usually been taken, not finished:
@@ -1284,6 +1454,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     metersRef.current = [null, null];
     spaceInRef.current = null;
     spaceOutRef.current = null;
+    rackReadyRef.current = false;
+    rackBuildingRef.current = false;
     void context?.close().catch(() => undefined);
   }, []);
 
@@ -1305,10 +1477,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, [ensureGraph, releaseGraph]);
 
   /* A page holding a web lock is not a page the browser freezes, and a frozen
-   * tab stops decoding shortly after it leaves the screen. */
+   * tab stops decoding shortly after it leaves the screen. The lock spans the
+   * whole track — not just the "playing" flag — so a background stall never
+   * leaves the tab freezable in the middle of a song. */
   useEffect(() => {
     const locks = navigator.locks;
-    if (!locks || !playing) return;
+    if (!locks || !current) return;
     let release = () => {};
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -1317,7 +1491,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       .request("zyrava-playback", () => held)
       .catch(() => undefined);
     return () => release();
-  }, [playing]);
+  }, [current]);
 
   // Apply EQ changes live and re-route: everything back at zero frees the
   // signal from the filter chain entirely.
@@ -1342,7 +1516,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const previous = tasteSongRef.current;
-    if (previous && previous.id !== current?.id) {
+    // tasteDoneRef still describes the outgoing track here: a listen that passed
+    // 90% is already logged, and a second line would count as another hearing.
+    if (previous && previous.id !== current?.id && !tasteDoneRef.current) {
       const duration = previous.duration || 0;
       const pct = duration ? tastePositionRef.current / duration : 0;
       recordTaste(
@@ -1359,8 +1535,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id]);
 
-  // Load a fresh stream whenever the active track changes. The play path is
-  // async because the analyser needs a CORS check on the stream host first.
+  // Load a fresh stream whenever the active track changes. The CORS decision
+  // comes first and synchronously when it is known, so the element's first
+  // play() lands inside the tap's activation window — a round trip before it
+  // is what left autoplay dead on some devices.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !current) return;
@@ -1369,29 +1547,37 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setProgress(0);
     setDuration(current.duration || 0);
     setPlayerError(null);
+    streamFailuresRef.current = 0;
+    currentRef.current = current;
+
+    const arm = (source: string) => {
+      // A source swap pauses the element on its way through — that pair of
+      // events is not the interruption the recovery watches for.
+      swapUntilRef.current = Date.now() + 1500;
+      userPausedRef.current = false;
+      clearRecovery();
+      audio.src = source;
+      audio.playbackRate = rateRef.current;
+      audio.load();
+      if (!shouldPlayRef.current) return;
+      audioContextRef.current?.resume().catch(() => {});
+      void padContextRef.current?.resume().catch(() => {});
+      // Fresh track: the crossfade envelope starts wide open.
+      if (djOutRef.current) djOutRef.current.gain.value = 1;
+      audio.play().catch(() => {
+        // A hand-off while the page is off screen commonly refuses the first
+        // try and takes a later one, so this is a retry rather than a failure.
+        swapUntilRef.current = 0;
+        recoverPlayback();
+      });
+    };
 
     const startStream = async () => {
-      /** Points the element at `src` and resumes wherever transport left off. */
-      const arm = (source: string) => {
-        // A source swap pauses the element on its way through — that pair of
-        // events is not the interruption the recovery watches for.
-        swapUntilRef.current = Date.now() + 1500;
-        userPausedRef.current = false;
-        clearRecovery();
-        audio.src = source;
-        audio.playbackRate = rateRef.current;
-        audio.load();
-        if (!shouldPlayRef.current) return;
-        audioContextRef.current?.resume().catch(() => {});
-        // Fresh track: the crossfade envelope starts wide open.
-        if (djOutRef.current) djOutRef.current.gain.value = 1;
-        audio.play().catch(() => {
-          // A hand-off while the page is off screen commonly refuses the first
-          // try and takes a later one, so this is a retry rather than a failure.
-          swapUntilRef.current = 0;
-          recoverPlayback();
-        });
-      };
+      // A stream re-resolved during this track's session wins — CDN links
+      // expire, and "plays a while then dies" is usually the link, not the
+      // decoder.
+      const refreshed = freshUrlRef.current;
+      freshUrlRef.current = null;
 
       // A copy held on this device is an object URL: no handshake, no probe,
       // and being same-origin it is analyserable too.
@@ -1415,32 +1601,116 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       } catch {
         // Unusual but possible; treat as non-analyserable.
       }
-      const cors = hostname ? await probeCors(current.streamUrl, hostname) : false;
-      if (cancelled) return;
-
-      if (cors) {
+      const cached = hostname ? corsCacheRef.current.get(hostname) : false;
+      if (cached === true) {
         // The analyser — and, in Chromium, audibility through Web Audio —
         // only works with crossorigin="anonymous" on the element.
         audio.crossOrigin = "anonymous";
         setVisualizerReady(Boolean(ensureGraph()));
-      } else {
-        audio.removeAttribute("crossorigin");
-        // Without CORS the graph is skipped: a tainted Web Audio tap degrades
-        // or silences the stream, so the element plays natively and the wave
-        // falls back to its CSS mimic.
-        setVisualizerReady(false);
+        arm(refreshed ?? current.streamUrl);
+        return;
       }
-      arm(current.streamUrl);
+
+      // Unknown or already refused: native playback, not a probe. The element
+      // without `crossorigin` streams anything, and a Web Audio tap left
+      // attached would silence the track the moment the stream taints.
+      if (audioContextRef.current) releaseGraph();
+      audio.removeAttribute("crossorigin");
+      // Without CORS the wave falls back to its CSS mimic; the probe running
+      // below warms the cache so the following tracks take the full graph.
+      setVisualizerReady(false);
+      arm(refreshed ?? current.streamUrl);
+      if (hostname && refreshed === null) void probeCors(current.streamUrl, hostname);
     };
+    startStreamRef.current = startStream;
 
     void startStream();
     return () => {
       cancelled = true;
+      if (startStreamRef.current === startStream) startStreamRef.current = null;
     };
     // The track id is the real trigger; `shouldPlayRef` is consumed above at
     // switch time and re-running on its change would restart finished tracks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id]);
+
+  /**
+   * Re-resolves the active stream. A link that went stale mid-track gets a
+   * fresh copy of the same recording by search: the queue keeps it, and the
+   * loader re-arms from it. This is the fix for devices that stop a few
+   * minutes into a song and never come back.
+   */
+  const refreshStream = useCallback(async (): Promise<boolean> => {
+    const song = currentRef.current;
+    if (!song || song.offline || refreshingRef.current) return false;
+    refreshingRef.current = true;
+    try {
+      const result = await searchSongs(`${song.title} ${song.artist}`.trim(), 6, 1);
+      const key = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
+      const fresh =
+        result.songs.find((candidate) => candidate.id === song.id && candidate.streamUrl) ??
+        result.songs.find(
+          (candidate) =>
+            candidate.streamUrl &&
+            key(candidate.title) === key(song.title) &&
+            key(candidate.artist) === key(song.artist)
+        );
+      if (!fresh || fresh.streamUrl === song.streamUrl) return false;
+      const url = fresh.streamUrl;
+      freshUrlRef.current = url;
+      setQueue((previous) =>
+        previous.map((row) => (row.id === song.id ? { ...row, streamUrl: url } : row))
+      );
+      startStreamRef.current?.();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshingRef.current = false;
+    }
+  }, []);
+
+  /**
+   * The stall watchdog. Nobody in the background is around to press play
+   * again: a paused element gets its play back, and a position frozen across
+   * two checks is a parked decoder or a dead link — re-arm first, then
+   * re-resolve the stream once the re-arms stop helping.
+   */
+  useEffect(() => {
+    if (!playing) return;
+    let lastAt = -1;
+    let stalls = 0;
+    const watch = window.setInterval(() => {
+      const audio = audioRef.current;
+      const track = currentRef.current;
+      if (!audio || !track || !shouldPlayRef.current || userPausedRef.current) return;
+      if (Date.now() < swapUntilRef.current) return;
+      if (audio.paused) {
+        recoverPlayback();
+        return;
+      }
+      const at = audio.currentTime;
+      if (at === lastAt) {
+        stalls += 1;
+        if (stalls >= 2) {
+          stalls = 0;
+          lastAt = -1;
+          if (track.offline) return; // only the network copy can go stale
+          streamFailuresRef.current += 1;
+          if (streamFailuresRef.current >= 3) {
+            streamFailuresRef.current = 0;
+            void refreshStream();
+          } else {
+            startStreamRef.current?.();
+          }
+        }
+      } else {
+        stalls = 0;
+        lastAt = at;
+      }
+    }, WATCHDOG_EVERY);
+    return () => window.clearInterval(watch);
+  }, [playing, recoverPlayback, refreshStream]);
 
   /* A queue that ran out while waiting for more tracks moves the moment they
    * arrive, so the listener hears one short beat instead of a stopped player. */
@@ -1894,6 +2164,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       navigator.mediaSession.setActionHandler("pause", () => togglePlay());
       navigator.mediaSession.setActionHandler("nexttrack", () => stepTrack(1));
       navigator.mediaSession.setActionHandler("previoustrack", () => stepTrack(-1));
+      // Kill/scrub from the OS mini-player: a lock-screen stop without a
+      // handler leaves the session alive with the tab unanswerable.
+      navigator.mediaSession.setActionHandler("stop", () => stop());
+      navigator.mediaSession.setActionHandler("seekbackward", () => {
+        const audio = audioRef.current;
+        if (audio) seek(Math.max(0, audio.currentTime - 10));
+      });
+      navigator.mediaSession.setActionHandler("seekforward", () => {
+        const audio = audioRef.current;
+        if (audio) seek(audio.currentTime + 10);
+      });
+      navigator.mediaSession.setActionHandler("seekto", (details) => {
+        if (details.seekTime !== undefined && details.fastSeek !== true) seek(details.seekTime);
+      });
     } catch {
       // MediaSession is progressive enhancement only.
     }
@@ -1903,11 +2187,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         navigator.mediaSession.setActionHandler("pause", null);
         navigator.mediaSession.setActionHandler("nexttrack", null);
         navigator.mediaSession.setActionHandler("previoustrack", null);
+        navigator.mediaSession.setActionHandler("stop", null);
+        navigator.mediaSession.setActionHandler("seekbackward", null);
+        navigator.mediaSession.setActionHandler("seekforward", null);
+        navigator.mediaSession.setActionHandler("seekto", null);
       } catch {
         // ignore
       }
     };
-  }, [current, togglePlay, stepTrack]);
+  }, [current, togglePlay, stepTrack, stop, seek]);
 
   useEffect(() => {
     if ("mediaSession" in navigator) {
@@ -1947,6 +2235,77 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [visualizerReady, current, recoverPlayback]);
+
+  /*
+   * Waking up is a second chance to recover: a bfcache restore (pageshow) and
+   * a process resume (the Page Lifecycle "resume" event on devices that froze
+   * the page) both mean the engine returned with the transport parked. The
+   * graph-level revive above only runs while a context exists — this pair
+   * covers the return with no graph at all.
+   */
+  useEffect(() => {
+    const onWakeup = () => {
+      if (document.hidden) return;
+      void audioContextRef.current?.resume().catch(() => {});
+      void padContextRef.current?.resume().catch(() => {});
+      recoverPlayback();
+    };
+    window.addEventListener("pageshow", onWakeup);
+    window.addEventListener("resume", onWakeup);
+    return () => {
+      window.removeEventListener("pageshow", onWakeup);
+      window.removeEventListener("resume", onWakeup);
+    };
+  }, [recoverPlayback]);
+
+  /* ── The autoplay unlock ─────────────────────────────────────────────
+   * Devices that only grant audio inside a gesture's activation window need
+   * the element opened while the tap is still alive. A silent clip armed on
+   * the first tap anywhere does that once; every later play() — store tile,
+   * media key, notification button — then works without waiting for that
+   * window again.
+   */
+  useEffect(() => {
+    let unlockUrl: string | null = null;
+    const onGesture = () => {
+      const audio = audioRef.current;
+      if (audio) {
+        void audioContextRef.current?.resume().catch(() => {});
+      }
+      void padContextRef.current?.resume().catch(() => {});
+      if (!audio || unlockedRef.current || audio.src) return;
+      unlockedRef.current = true;
+      unlockUrl = makeSilentBlob();
+      if (!unlockUrl) return;
+      // The teardown only fires when the element still holds the silent clip:
+      // a real track armed meanwhile is already where the listener wants it.
+      const done = () => {
+        if (audioRef.current?.src === unlockUrl) {
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+        }
+      };
+      try {
+        audio.src = unlockUrl;
+        audio.play().then(done, () => {
+          if (audioRef.current?.src === unlockUrl) {
+            audio.removeAttribute("src");
+            audio.load();
+          }
+        });
+      } catch {
+        done();
+      }
+    };
+    window.addEventListener("pointerdown", onGesture, { capture: true });
+    window.addEventListener("keydown", onGesture, { capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", onGesture, true);
+      window.removeEventListener("keydown", onGesture, true);
+      if (unlockUrl) URL.revokeObjectURL(unlockUrl);
+    };
+  }, []);
 
   const value = useMemo<MusicPlayerValue>(
     () => ({
@@ -2109,6 +2468,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }}
         onPause={handlePause}
         onStalled={recoverPlayback}
+        onWaiting={recoverPlayback}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={(event) =>
           setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)
@@ -2116,15 +2476,24 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         onEnded={handleEnded}
         onError={() => {
           if (!current) return;
-          shouldPlayRef.current = false;
           if (current.offline) {
-            setPlayerError(
-              current.offline
-                ? "This saved copy is no longer on this device."
-                : "This track could not be streamed — try another one."
-            );
+            shouldPlayRef.current = false;
+            setPlayerError("This saved copy is no longer on this device.");
             setPlaying(false);
+            return;
           }
+          /* A stream error gets one silent re-arm under the recovery chain;
+             failing twice in a row is a dead link, so the message shows. */
+          streamFailuresRef.current += 1;
+          if (streamFailuresRef.current <= 2 && shouldPlayRef.current && !userPausedRef.current) {
+            window.setTimeout(() => {
+              if (shouldPlayRef.current && !userPausedRef.current) startStreamRef.current?.();
+            }, 1500);
+            return;
+          }
+          shouldPlayRef.current = false;
+          setPlayerError("This track could not be streamed — try another one.");
+          setPlaying(false);
         }}
       />
     </MusicPlayerContext.Provider>

@@ -288,6 +288,16 @@ export interface TasteVector {
   artistWords: Set<string>;
   /** Mood centroid of the seeds: the listener as a point in vibe space. */
   centroid: number[];
+  /** What this listening session is about: a recency-first second centre of
+   *  mass. Recommendations blend with it so a queue of one artist, one road
+   *  trip or one workout session reads the room it was built in. */
+  session: { centroid: number[]; weight: number; songs: Song[] };
+  /** How strongly each artist word is loved, log-scaled — far more signal
+   *  than the binary "have I seen this artist" set. */
+  artistAffinity: Map<string, number>;
+  /** Profiles of what the listener bailed on recently. Candidates that look
+   *  like these get pushed down — the negative half of feedback. */
+  skipProfiles: Profile[];
   language: string;
   vibe: Vibe | null;
   queries: string[];
@@ -319,6 +329,15 @@ const EMPTY_STATE: TasteState = {
 function fatigueFor(plays: number): number {
   return 1 / (1 + 0.35 * Math.max(0, plays - 1));
 }
+
+/** The listening session this recommendation answers to. */
+const SESSION_WINDOW_MS = 90 * 60_000;
+/** A track's session influence halves every six hours inside that window. */
+const SESSION_HALF_LIFE_HOURS = 6;
+/** Recent bail-outs that quietly steer the mix away. */
+const SKIP_WINDOW_DAYS = 2;
+/** How much of the rendered score the negative contrast can shave. */
+const SKIP_SHAVE = 0.3;
 
 /**
  * Folds the account log and the unsent local lines into one profile. The
@@ -372,11 +391,41 @@ export function buildVector(
 
   const playable: Song[] = [];
   const candidates: TasteSeed[] = [];
+  /** Artist-word love, accumulated log-scale across every positive row. */
+  const affinity = new Map<string, number>();
+  /** Rows inside the session window — the "right now" second centre. */
+  const sessionRows: Array<{ song: Song; w: number; profile: Profile }> = [];
+  /** What was bailed on recently — the steering-away set. */
+  const skipProfiles: Profile[] = [];
+  const skipSeen = new Set<string>();
+
   for (const [sid, row] of counts) {
     const song = snapshots.get(sid);
     if (!song) continue;
     playable.push(song);
     const profile = profileOf(song);
+    if (row.score > 0) {
+      const love = Math.log2(1 + Math.max(0, row.score * fatigueFor(row.plays)));
+      for (const word of profile.artist) {
+        affinity.set(word, (affinity.get(word) ?? 0) + love);
+      }
+      const ageHours = Math.max(0, (now - row.last) / 3_600_000);
+      if (row.last >= now - SESSION_WINDOW_MS) {
+        sessionRows.push({ song, w: 0.5 ** (ageHours / SESSION_HALF_LIFE_HOURS), profile });
+      }
+    }
+    // Skips that outweigh plays in the recent window steer the mix away.
+    const wroteOff =
+      row.skips > 0 &&
+      row.skips >= row.plays &&
+      row.last >= now - SKIP_WINDOW_DAYS * DAY;
+    if (wroteOff && row.score < 8) {
+      const key = `${normalize(song.title)}|${normalize(song.artist)}`;
+      if (!skipSeen.has(key)) {
+        skipSeen.add(key);
+        skipProfiles.push(profile);
+      }
+    }
     const weight = row.score * fatigueFor(row.plays);
     candidates.push({
       song,
@@ -390,6 +439,37 @@ export function buildVector(
     });
   }
   candidates.sort((a, b) => b.weight - a.weight);
+
+  // Affinity to 0..1, so a candidate's artist bonus never swamps the rest.
+  let peakAffinity = 0;
+  for (const value of affinity.values()) if (value > peakAffinity) peakAffinity = value;
+  const artistAffinity = new Map<string, number>();
+  if (peakAffinity > 0) {
+    for (const [word, value] of affinity) artistAffinity.set(word, value / peakAffinity);
+  }
+
+  // The session centre of mass: the strongest recent rows only, so one stray
+  // tap does not swing the whole recommendation session.
+  sessionRows.sort((a, b) => b.w - a.w);
+  const sessionStrong = sessionRows.slice(0, 12);
+  const sessionCentroid = new Array(VIBES.length).fill(0);
+  let sessionMass = 0;
+  for (const row of sessionStrong) {
+    sessionMass += row.w;
+    for (let index = 0; index < sessionCentroid.length; index += 1) {
+      sessionCentroid[index] += (row.profile.mood[index] ?? 0) * row.w;
+    }
+  }
+  const sessionMagnitude = Math.sqrt(
+    sessionCentroid.reduce((sum, value) => sum + value * value, 0)
+  );
+  const sessionVector = sessionMagnitude
+    ? sessionCentroid.map((value) => value / sessionMagnitude)
+    : sessionCentroid;
+
+  // The negative half of the feedback loop, capped: twelve bail-outs are
+  // enough contrast for a whole run of picks.
+  const negativeProfiles = skipProfiles.slice(0, 12);
 
   const seeds = candidates.filter(
     (seed) => seed.weight > 0 && !blocked.has(seed.song.id) && (seed.plays > seed.skips || seed.weight >= 4)
@@ -443,6 +523,13 @@ export function buildVector(
     seeds,
     artistWords,
     centroid: mood,
+    session: {
+      centroid: sessionVector,
+      weight: sessionMass,
+      songs: sessionStrong.map((row) => row.song),
+    },
+    artistAffinity,
+    skipProfiles: negativeProfiles,
     language: normalize(language),
     vibe,
     queries,
@@ -496,7 +583,27 @@ interface PoolEntry {
   seedRank: number;
 }
 
-/** Runs every phrase in order — never in parallel — and pools what comes back. */
+/* Phrase answers live for ten minutes across builds and re-rolls, so "start
+ * over" mostly reuses the catalogue it already fetched. */
+const POOL_TTL = 10 * 60_000;
+/** How many searches run at once — the server is fine with four. */
+const POOL_CONCURRENCY = 3;
+const poolCache = new Map<string, { at: number; songs: Song[] }>();
+
+async function fetchCached(phrase: string, fetchPool: FetchPool): Promise<Song[]> {
+  const cached = poolCache.get(phrase);
+  if (cached && Date.now() - cached.at < POOL_TTL) return cached.songs;
+  try {
+    const songs = await fetchPool(phrase, POOL_LIMIT);
+    poolCache.set(phrase, { at: Date.now(), songs });
+    return songs;
+  } catch {
+    /* a phrase that will not resolve just narrows the pool */
+    return [];
+  }
+}
+
+/** Runs the phrases with a small in-flight overlap and pools what comes back. */
 async function gatherPool(
   phrases: string[],
   fetchPool: FetchPool,
@@ -506,21 +613,20 @@ async function gatherPool(
   const sources = new Map<string, Set<number>>();
   const seen = new Set<string>();
 
-  for (let index = 0; index < Math.min(phrases.length, budget); index += 1) {
-    const phrase = phrases[index];
-    if (!phrase || seen.has(phrase)) continue;
-    seen.add(phrase);
-    let songs: Song[] = [];
-    try {
-      songs = await fetchPool(phrase, POOL_LIMIT);
-    } catch {
-      continue;
-    }
-    songs.slice(0, POOL_LIMIT).forEach((song, rank) => {
-      pool.push({ song, seedRank: rank });
-      const hits = sources.get(song.id) ?? new Set<number>();
-      hits.add(index);
-      sources.set(song.id, hits);
+  const active = phrases.filter((phrase) => phrase && !seen.has(phrase)).slice(0, budget);
+  active.forEach((phrase) => seen.add(phrase));
+
+  for (let start = 0; start < active.length; start += POOL_CONCURRENCY) {
+    const batch = active.slice(start, start + POOL_CONCURRENCY);
+    const batches = await Promise.all(batch.map((phrase) => fetchCached(phrase, fetchPool)));
+    batches.forEach((songs, batchIndex) => {
+      const phraseIndex = start + batchIndex;
+      songs.slice(0, POOL_LIMIT).forEach((song, rank) => {
+        pool.push({ song, seedRank: rank });
+        const hits = sources.get(song.id) ?? new Set<number>();
+        hits.add(phraseIndex);
+        sources.set(song.id, hits);
+      });
     });
   }
   return { pool, sources };
@@ -577,6 +683,14 @@ export function mixPhrases(v: TasteVector, salt: number): string[] {
     phrases.push(title || normalize(adventurous.song.artist));
   }
 
+  // What this listening session is about right now: the freshest row's album,
+  // so a queue built around one record keeps finding songs beside it.
+  const sessionTail = v.session.songs[0];
+  if (sessionTail) {
+    const album = [...profileOf(sessionTail).album].slice(0, 4).join(" ");
+    if (album) phrases.push(album);
+  }
+
   const artist = v.topArtists[0]?.name;
   if (artist) phrases.push(normalize(artist));
 
@@ -629,19 +743,50 @@ export async function mixShelf(
     }
     const parts = breakdown(best, profile);
     const evidence = Math.min(1, (sources.get(song.id)?.size ?? 1) / EVIDENCE_MAX);
-    const tasteCosine = cosine(profile.mood, v.centroid);
     const eraLength = (parts.era + parts.length) / 2;
     const stats = v.fatigue.get(song.id) ?? { plays: 0, skips: 0 };
 
+    // Artist love: one number per artist word, 0..1, from every positive
+    // listening event — a much sharper signal than a flat "known artist" bump.
+    let artistLove = 0;
+    if (profile.artist.size) {
+      for (const word of profile.artist) artistLove += v.artistAffinity.get(word) ?? 0;
+      artistLove /= profile.artist.size;
+    }
+
+    // The long-run centre blended with the session centre: what the listener
+    // has been doing this session sways the picks without erasing the base.
+    const sessionPull = Math.min(1, v.session.weight / 2);
+    const tasteCosine =
+      cosine(profile.mood, v.centroid) * (1 - 0.35 * sessionPull) +
+      0.35 * sessionPull * cosine(profile.mood, v.session.centroid);
+
+    // Negative contrast: candidates shaped like a recent bail-out slide down.
+    let shave = 0;
+    for (const writtenOff of v.skipProfiles) {
+      const like = similarity(writtenOff, profile);
+      if (like > shave) shave = like;
+    }
+
+    // Catalogue standing: how far up its own search the recording placed —
+    // a light popularity prior that steers toward what actually plays well.
+    const standing = 1 - Math.min(1, entry.seedRank / POOL_LIMIT);
+
     let value =
-      0.5 * bestSim +
-      0.2 * evidence +
-      0.22 * tasteCosine +
-      0.08 * eraLength +
+      0.38 * bestSim +
+      0.18 * evidence +
+      0.18 * tasteCosine +
+      0.1 * artistLove +
+      0.07 * standing +
+      0.05 * eraLength +
       (normalize(song.language) === v.language ? 0.04 : 0);
-    // Seeds that only ever got skipped are weak evidence, not encouragement.
+    // Learned skips, then per-track skip stats — twice-calibrated negative
+    // weights, because what the listener leaves matters as much as what stays.
+    value -= SKIP_SHAVE * shave;
     if (stats.skips > stats.plays) value -= 0.05;
     value *= fatigueFor(stats.plays);
+    // While the log is thin, similarity is nearly all the signal there is.
+    if (v.stage === "priming") value = 0.75 * value + 0.25 * bestSim;
 
     scored.push({ song, profile, raw: Math.max(0, Math.min(1, value)), echo: parts.title });
   }
@@ -725,8 +870,11 @@ export async function radioShelf(
   options: ShelfOptions = {}
 ): Promise<Shelf> {
   const { limit = 10, shown, current } = { ...DEFAULTS, ...options };
+  // What the listener touched most recently dominates the neighbourhood — a
+  // radio station that always opens from the road-trip song last clicked.
+  const sessionSeed = v.session.songs.find((song) => !v.blocked.has(song.id)) ?? null;
   const recent = v.seeds.slice().sort((a, b) => b.weight * b.fresh - a.weight * a.fresh)[0];
-  const seed = recent?.song ?? (current ?? null);
+  const seed = sessionSeed ?? recent?.song ?? (current ?? null);
   if (!seed) return { key: "radio", title: "Because you played", picks: [] };
 
   const picks = (await buildRadioFor(seed, v.artistWords, fetchPool, limit)).filter(
@@ -763,6 +911,18 @@ export async function exploreShelf(
     if (!language) continue;
     for (const vibe of VIBES) {
       tails.push({ phrase: `${language} ${vibe.queries[0]}`, score: row.score + (v.vibe === vibe ? 1 : 0) });
+    }
+  }
+  // UCB-style reach: languages the log has never answered get a bonus that
+  // grows with everything the listener has already told the engine — the more
+  // evidence exists about this listener, the more an unexplored scene is worth.
+  const spoken = new Set(v.languages.map((row) => normalize(row.name)));
+  const curiosity = Math.sqrt(Math.log2(2 + v.events));
+  for (const region of REGIONS) {
+    const language = normalize(region.label);
+    if (!language || spoken.has(language)) continue;
+    for (const vibe of VIBES) {
+      tails.push({ phrase: `${language} ${vibe.queries[0]}`, score: curiosity });
     }
   }
   if (!tails.length && v.language) tails.push({ phrase: `${v.language} new releases`, score: 1 });

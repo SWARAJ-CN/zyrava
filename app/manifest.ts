@@ -15,6 +15,13 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     scope: "/",
     display: "standalone",
+    /* Where the OS allows it, standalone; the fallbacks keep the app windowed
+       rather than falling all the way back to a plain browser tab. */
+    display_override: ["standalone", "minimal-ui"],
+    orientation: "any",
+    launch_handler: {
+      client_mode: ["focus-existing", "auto"],
+    },
     background_color: "#17111c",
     theme_color: "#17111c",
     categories: ["music", "entertainment"],

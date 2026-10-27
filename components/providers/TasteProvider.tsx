@@ -136,6 +136,8 @@ class TasteEngine {
   private lastShown: string[] = [];
   private building = false;
   private salt = 0;
+  /** A surface asked for the shelves; kept until a build can actually start. */
+  private wanted = false;
   private failures = 0;
   private builtSig = "";
   private queued: ReturnType<typeof setTimeout> | null = null;
@@ -201,6 +203,8 @@ class TasteEngine {
       if (value) this.state = value;
       this.vector = buildVector(this.state, this.buffer.events, this.storedSongs());
       this.notify();
+      // The card may have asked for its shelves before this read landed.
+      this.retryBuild();
       void this.flush();
     });
 
@@ -248,6 +252,8 @@ class TasteEngine {
     if (kind === "like" || kind === "unlike" || pendingEvents(this.buffer).length >= FLUSH_AT) {
       void this.flush();
     }
+    // Enough events may have landed to make the shelves worth building at last.
+    this.retryBuild();
     // The shelves re-read the log on a schedule, never in the middle of a scroll.
     if (song) this.schedule();
   };
@@ -357,9 +363,20 @@ class TasteEngine {
   }
 
   ensureBuilt = (): void => {
-    if (this.shelves || this.builtSig) return;
-    void this.build();
+    this.wanted = true;
+    this.retryBuild();
   };
+
+  /**
+   * A surface asked for the shelves before the engine could hand them over: the
+   * account log may still be in flight, or the listener may not have done enough
+   * yet for a build to be worth the round trips. Either way the request is
+   * remembered, so the first moment it can be honoured starts the work.
+   */
+  private retryBuild(): void {
+    if (!this.wanted || this.shelves || this.builtSig) return;
+    void this.build();
+  }
 
   refresh = (): void => {
     this.salt += 1;
