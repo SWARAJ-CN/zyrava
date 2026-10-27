@@ -603,6 +603,15 @@ async function fetchCached(phrase: string, fetchPool: FetchPool): Promise<Song[]
   }
 }
 
+/**
+ * Drops the phrase answers so the next shelf build goes back to the catalogue:
+ * a fresh play or like just changed what the listener cares about, and the
+ * cached pool may predate it.
+ */
+export function invalidatePool(): void {
+  poolCache.clear();
+}
+
 /** Runs the phrases with a small in-flight overlap and pools what comes back. */
 async function gatherPool(
   phrases: string[],

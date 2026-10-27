@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import { RelatedSongs } from "@/components/features/music/RelatedSongs";
+import { BeatGlow } from "@/components/features/music/BeatGlow";
 
 /**
  * The Spotify-style "Now playing" preview — a fixed glass card docked to the
@@ -23,6 +24,7 @@ export function NowPlayingPanel() {
     togglePlay,
     progress,
     duration,
+    getAnalyser,
   } = useMusicPlayer();
 
   if (!nowPlayingOpen || !current) return null;
@@ -32,8 +34,10 @@ export function NowPlayingPanel() {
       aria-label="Now playing"
       className="fixed end-4 top-4 bottom-[8.25rem] z-30 hidden w-[21.75rem] flex-none flex-col overflow-hidden rounded-xl border border-separator bg-surface-secondary/85 shadow-pop backdrop-blur-xl xl:flex"
     >
+      {/* Beat-driven RGB lights behind the card's surface. */}
+      <BeatGlow getAnalyser={getAnalyser} playing={playing} />
       {/* Header — Spotify's light top row */}
-      <div className="flex items-center justify-between gap-2 px-5 pb-3 pt-4">
+      <div className="relative z-10 flex items-center justify-between gap-2 px-5 pb-3 pt-4">
         <p className="truncate text-sm font-bold text-foreground">{queueLabel || "Now playing"}</p>
         <button
           type="button"
@@ -47,7 +51,7 @@ export function NowPlayingPanel() {
       </div>
 
       {/* Artwork card with the play overlay */}
-      <div className="px-5">
+      <div className="relative z-10 px-5">
         <div className="group relative aspect-square w-full overflow-hidden rounded-lg border border-separator bg-surface-muted">
           {current.image ? (
             <Image
@@ -86,7 +90,7 @@ export function NowPlayingPanel() {
       </div>
 
       {/* Song card — title, artist, album, position */}
-      <div className="flex min-h-0 flex-1 flex-col px-5 pb-4 pt-4">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-4 pt-4">
         <h2 className="truncate text-2xl font-black tracking-tight text-foreground" title={current.title}>
           {current.title}
         </h2>

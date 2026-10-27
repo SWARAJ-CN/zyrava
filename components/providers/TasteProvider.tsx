@@ -19,6 +19,7 @@ import {
   buildVector,
   coldStage,
   exploreShelf,
+  invalidatePool,
   markSent,
   mixShelf,
   pendingEvents,
@@ -90,7 +91,7 @@ const FLUSH_AT = 20;
 /** Background write cadence. */
 const SYNC_EVERY = 60_000;
 /** A new play schedules work this late, never mid-scroll. */
-const REBUILD_AFTER = 15_000;
+const REBUILD_AFTER = 5_000;
 
 const EMPTY_SNAPSHOT: Snapshot = {
   state: null,
@@ -247,6 +248,7 @@ class TasteEngine {
     this.buffer = appendEvent(this.buffer, kind, song, extra);
     this.persist();
     this.vector = buildVector(this.state, this.buffer.events, this.storedSongs());
+    if (song) invalidatePool();
     this.notify();
 
     if (kind === "like" || kind === "unlike" || pendingEvents(this.buffer).length >= FLUSH_AT) {

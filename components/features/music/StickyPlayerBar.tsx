@@ -55,10 +55,13 @@ export function StickyPlayerBar() {
     setVolume,
     setMuted,
     applyPreset,
+    markEqCustom,
     setEqGains,
     setSpatialMode,
     shuffle,
     toggleShuffle,
+    autoFeed,
+    toggleAutoFeed,
     repeat,
     cycleRepeat,
   } = useMusicPlayer();
@@ -107,6 +110,24 @@ export function StickyPlayerBar() {
           )}
         >
           <Icon name="shuffle" className={icon} />
+        </button>
+        {/* Taste-driven queue top-ups: keeps the shelf below the needle growing
+            from the listener's own taste. Never touches which track comes next. */}
+        <button
+          type="button"
+          title="Auto recommendation feed — grow the queue from your taste"
+          aria-label="Auto recommendation feed"
+          aria-pressed={autoFeed}
+          onClick={toggleAutoFeed}
+          className={cn(
+            "grid place-items-center rounded-full transition-all duration-150",
+            autoFeed
+              ? "bg-accent-soft text-brand shadow-[0_0_0_1px_color-mix(in_oklab,var(--accent)_35%,transparent)]"
+              : "text-muted hover:bg-surface-secondary hover:text-foreground",
+            keySize
+          )}
+        >
+          <Icon name="sparkles" className={icon} />
         </button>
         <button
           type="button"
@@ -184,7 +205,7 @@ export function StickyPlayerBar() {
         min={0}
         max={Math.max(duration, 1)}
         step={1}
-        value={Math.min(progress, duration || progress)}
+        value={duration ? Math.min(progress, duration) : 0}
         aria-label="Seek"
         onChange={(event) => seek(Number(event.target.value))}
         className="h-1.5 min-w-0 w-full cursor-pointer rounded-full sm:h-2"
@@ -280,6 +301,7 @@ export function StickyPlayerBar() {
                         const gains = [...eqGains];
                         gains[bandIndex] = Number(event.target.value);
                         setEqGains(gains);
+                        markEqCustom(gains);
                       }}
                       className="h-1.5 w-full min-w-0 cursor-pointer rounded-full"
                       style={{ accentColor: "var(--accent)" }}

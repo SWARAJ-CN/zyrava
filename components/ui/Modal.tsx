@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Modal as HeroModal } from "@heroui/react";
 
 type Size = "sm" | "md" | "lg" | "xl";
@@ -31,6 +31,31 @@ export function Modal({
   size = "md",
   children,
 }: ModalProps) {
+  // React Aria locks <html>'s scroll for every open overlay and undoes the lock
+  // when the last one closes. Having two overlays land on the same tick — or an
+  // exit animation racing an unmount — can leave the "hidden" behind, and with
+  // it the whole page stops responding to wheel and touch: every control behind
+  // the seam feels dead. So after each of our close paths, if no other modal is
+  // standing on screen, sweep any leftover lock away.
+  useEffect(() => {
+    if (open) return;
+    const sweep = () => {
+      if (document.querySelector(".modal__backdrop")) return;
+      const html = document.documentElement;
+      if (html.style.overflow === "hidden") {
+        html.style.removeProperty("overflow");
+        html.style.removeProperty("scrollbar-gutter");
+        html.style.removeProperty("padding-right");
+      }
+    };
+    const first = window.setTimeout(sweep, 550);
+    const second = window.setTimeout(sweep, 1300);
+    return () => {
+      window.clearTimeout(first);
+      window.clearTimeout(second);
+    };
+  }, [open]);
+
   return (
     <HeroModal.Root
       isOpen={open}

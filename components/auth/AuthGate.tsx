@@ -33,8 +33,6 @@ const SPLASH_GLYPHS: ReactNode[] = [
   </>,
 ];
 
-const GLYPH_RADIUS = 24;
-
 export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -52,10 +50,39 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   return (
     <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-background px-6 text-foreground">
-      {/* Soft ambient glow behind the mark */}
+      {/* Keyframes for Zepto jump & rotating green/black background aura */}
+      <style jsx>{`
+        @keyframes zepto-jump {
+          0%, 100% {
+            transform: translateY(5px) scale(0.8);
+            opacity: 0.35;
+          }
+          50% {
+            transform: translateY(-6px) scale(1.15);
+            opacity: 1;
+          }
+        }
+        @keyframes bg-rotate {
+          0% {
+            transform: translate(-50%, -50%) rotate(0deg) scale(1);
+          }
+          50% {
+            transform: translate(-50%, -50%) rotate(180deg) scale(1.15);
+          }
+          100% {
+            transform: translate(-50%, -50%) rotate(360deg) scale(1);
+          }
+        }
+      `}</style>
+
+      {/* Animated rotating green and deep dark blur background aura */}
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/2 size-[32rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-[0.05] blur-3xl"
+        className="pointer-events-none absolute left-1/2 top-1/2 size-[38rem] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.18] blur-3xl"
+        style={{
+          background: "conic-gradient(from 0deg at 50% 50%, #10b981 0deg, #022c22 120deg, #000000 240deg, #10b981 360deg)",
+          animation: "bg-rotate 10s linear infinite",
+        }}
       />
 
       <div
@@ -74,44 +101,30 @@ export function AuthGate({ children }: { children: ReactNode }) {
           {/* Tinted disc so the glyphs have something to sit on */}
           <span aria-hidden className="absolute inset-[3px] rounded-full bg-accent/[0.06]" />
 
-          {/* Every glyph, arranged on a small circle, each hopping on its own beat */}
-          <div aria-hidden className="absolute inset-0">
-            {SPLASH_GLYPHS.map((glyph, i) => {
-              const angle =
-                (-90 + (360 / SPLASH_GLYPHS.length) * i) * (Math.PI / 180);
-              const x = Math.cos(angle) * GLYPH_RADIUS;
-              const y = Math.sin(angle) * GLYPH_RADIUS;
-
-              return (
-                <span
-                  key={i}
-                  className="absolute left-1/2 top-1/2"
-                  style={{
-                    transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
-                  }}
+          {/* Center items aligned in a row, jumping sequentially */}
+          <div aria-hidden className="absolute inset-0 flex items-center justify-center gap-1">
+            {SPLASH_GLYPHS.map((glyph, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center justify-center text-accent motion-safe:will-change-transform"
+                style={{
+                  animation: "zepto-jump 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite",
+                  animationDelay: `${i * 0.14}s`,
+                }}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="size-[16px]"
                 >
-                  <span
-                    className="block text-accent motion-safe:animate-[splash-hop_1.15s_ease-in-out_infinite] motion-safe:will-change-transform"
-                    style={{
-                      animationDelay: `${-i * 190}ms`,
-                      animationDuration: `${1.05 + (i % 3) * 0.12}s`,
-                    }}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="size-[18px]"
-                    >
-                      {glyph}
-                    </svg>
-                  </span>
-                </span>
-              );
-            })}
+                  {glyph}
+                </svg>
+              </span>
+            ))}
           </div>
         </div>
 

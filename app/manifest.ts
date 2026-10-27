@@ -25,6 +25,13 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#17111c",
     theme_color: "#17111c",
     categories: ["music", "entertainment"],
+    /* Long-press on the app icon on Android/iOS lands here — the OS lists
+       these as the app's own quick actions. */
+    shortcuts: [
+      { name: "Liked songs", short_name: "Liked", url: "/?tab=liked" },
+      { name: "Downloads", short_name: "Downloads", url: "/?tab=downloads" },
+      { name: "Offline files", short_name: "Offline", url: "/?tab=offline" },
+    ],
     icons: [
       { src: "/icons/pwa-192x192.png", sizes: "192x192", type: "image/png" },
       { src: "/icons/pwa-512x512.png", sizes: "512x512", type: "image/png" },

@@ -104,6 +104,17 @@ export default function MusicPage() {
   const [attempt, setAttempt] = useState(0);
   const [view, setView] = useState<ViewMode>(DEFAULT_VIEW);
   const [homeTab, setHomeTab] = useState<HomeTab>("songs");
+
+  /* The PWA shortcut (a long-press on the app icon) lands on /?tab=liked and
+     friends — the launcher's chosen panel is honoured once, on arrival. */
+  useEffect(() => {
+    const asked = new URLSearchParams(window.location.search).get("tab");
+    if (!HOME_TABS.some((entry) => entry.value === asked)) return;
+    // Deferred one frame: the server's choice paints first, then the
+    // launcher's panel takes over without a hydration mismatch.
+    const timer = window.setTimeout(() => setHomeTab(asked as HomeTab), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [importOpen, setImportOpen] = useState(false);
 
   /* Multi-check filters — languages and "why am I listening" vibes. An empty

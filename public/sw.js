@@ -6,8 +6,8 @@
  * artwork CDNs, RSC payloads — goes straight to the network, so a stale cache
  * can never serve an out-of-date page shell or someone else's audio.
  */
-const SHELL = "zyrava-shell-v2";
-const ASSETS = "zyrava-assets-v2";
+const SHELL = "zyrava-shell-v3";
+const ASSETS = "zyrava-assets-v3";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

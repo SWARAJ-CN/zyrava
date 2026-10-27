@@ -360,3 +360,258 @@ button,
   0%, 100% { transform: scale(1) rotate(0deg); }
   50% { transform: scale(1.035) rotate(-0.4deg); }
 }
+
+/* ------------------------------------------------------------------ *
+ * Polish round 2
+ * ------------------------------------------------------------------ */
+
+/* Every clickable section reads as clickable: a pointer cursor sits on
+   buttons, links, tab-like roles, toggles and scrubbers. Text fields keep
+   the text caret — they are typed into, not clicked through. */
+button:not(:disabled),
+[role="button"]:not(:disabled),
+[role="switch"],
+[role="option"],
+[role="tab"],
+[role="menuitem"],
+[role="menuitemradio"],
+[role="menuitemcheckbox"],
+[aria-haspopup],
+a[href],
+summary,
+select,
+label:has(input:not([type="text"], [type="search"])),
+input[type="range"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+button[type="button"] {
+  cursor: pointer;
+}
+
+/* Toasts float above the player bar instead of behind it. HeroUI pins the
+   bottom region at 1rem, exactly under the sticky player; the clearance
+   tracks the bar's height (two stacked rows on phones, one on sm+). */
+:root {
+  --toast-clearance: 7.5rem;
+}
+@media (min-width: 40rem) {
+  :root {
+    --toast-clearance: 5.5rem;
+  }
+}
+.toast-region--bottom,
+.toast-region--bottom-start,
+.toast-region--bottom-end {
+  bottom: calc(var(--toast-clearance) + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 80rem) {
+  .toast-region--bottom-end {
+    /* Wide screens: also step aside from the fixed Now-playing panel. */
+    inset-inline-end: 26.5rem;
+  }
+}
+
+/* The dock morphs between rail and wide on a long, soft-out curve — the
+   whole column feels like one spring, and the keyed body cross-fades over
+   it (see .dock-morph). */
+.dock-width {
+  transition: width 0.42s cubic-bezier(0.3, 0.7, 0.08, 1);
+  will-change: width;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-width {
+    transition: none;
+    will-change: auto;
+  }
+}
+
+/* Dock morph: when the sidebar tips between rail and wide, its body cross-
+   fades over the width spring instead of snapping to new content. */
+.dock-morph {
+  display: contents;
+}
+@keyframes dock-morph-fade {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+/* .dock-morph-run is re-added by the sidebar effect on each wide/rail tip. */
+.dock-morph.dock-morph-run > * {
+  animation: dock-morph-fade 0.3s var(--ease-out, ease) 0.12s backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-morph.dock-morph-run > * {
+    animation: none;
+  }
+}
+
+/* ── Beat glow — the Now-playing card's rotating RGB lights ────────────── *
+ * Three blurred colour blobs orbit behind the artwork. Their hue drifts
+ * continuously (each blob offset by a third of a wheel) and their opacity
+ * and size answer the bass of the playing track through `--beat`, written
+ * per-frame by the BeatGlow component from the analyser tap. */
+.beat-glow {
+  position: absolute;
+  inset: -22%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.beat-glow i {
+  position: absolute;
+  width: 65%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(58px);
+  opacity: calc(0.2 + var(--beat, 0) * 0.55);
+  transform: scale(calc(0.85 + var(--beat, 0) * 0.55));
+  will-change: opacity, transform, translate;
+}
+.beat-glow .beat-glow-a {
+  top: 4%;
+  left: 6%;
+  background: radial-gradient(
+    closest-side,
+    hsl(calc(var(--hue, 160) * 1deg) 92% 58% / 0.6),
+    transparent 72%
+  );
+  animation: beat-drift-a 17s ease-in-out infinite alternate;
+}
+.beat-glow .beat-glow-b {
+  top: 52%;
+  left: 52%;
+  background: radial-gradient(
+    closest-side,
+    hsl(calc((var(--hue, 160) + 120) * 1deg) 92% 58% / 0.6),
+    transparent 72%
+  );
+  animation: beat-drift-b 21s ease-in-out infinite alternate;
+}
+.beat-glow .beat-glow-c {
+  top: 78%;
+  left: 12%;
+  background: radial-gradient(
+    closest-side,
+    hsl(calc((var(--hue, 160) + 240) * 1deg) 92% 58% / 0.55),
+    transparent 72%
+  );
+  animation: beat-drift-c 26s ease-in-out infinite alternate;
+}
+@keyframes beat-drift-a {
+  from { translate: 0% 0%; rotate: 0deg; }
+  to { translate: 26% 34%; rotate: 140deg; }
+}
+@keyframes beat-drift-b {
+  from { translate: 0% 0%; rotate: 0deg; }
+  to { translate: -30% -24%; rotate: -180deg; }
+}
+@keyframes beat-drift-c {
+  from { translate: 0% 0%; rotate: 0deg; }
+  to { translate: 38% -30%; rotate: 220deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .beat-glow i,
+  .beat-glow .beat-glow-a,
+  .beat-glow .beat-glow-b,
+  .beat-glow .beat-glow-c {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ── Voice globe — dotted listening sphere with sound rings ──────────── *
+ * A ball of fine dots that rolls slowly either way, wrapped in meridian
+ * glass rings, with ripple waves sweeping outward to say "we're listening".
+ * `--listening` (1 while active) fades the whole stage in. */
+.voice-globe {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  opacity: calc(0.35 + var(--listening, 0) * 0.65);
+  transition: opacity 0.3s ease;
+}
+.voice-globe .voice-dots {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--accent) 88%, white) 1.1px,
+    transparent 1.4px
+  );
+  background-size: 7px 7px;
+  background-position: center;
+  /* Sphere shading: dots melt away at the limb so the ball reads round. */
+  -webkit-mask-image: radial-gradient(closest-side, black 62%, transparent 100%);
+  mask-image: radial-gradient(closest-side, black 62%, transparent 100%);
+  animation: globe-sway 5.5s ease-in-out infinite alternate;
+}
+.voice-globe .voice-meridian {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklab, var(--accent) 45%, transparent);
+  box-shadow:
+    inset 0 0 18px color-mix(in oklab, var(--accent) 25%, transparent),
+    0 0 14px color-mix(in oklab, var(--accent) 20%, transparent);
+  animation: globe-sway 7.5s ease-in-out infinite alternate-reverse;
+}
+.voice-globe .voice-meridian--outer {
+  scale: 1.14;
+  opacity: 0.55;
+}
+.voice-globe .voice-core {
+  position: relative;
+  z-index: 1;
+  width: 34%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: white;
+  background: radial-gradient(
+    circle at 32% 28%,
+    hsl(calc((var(--hue, 160) + 40) * 1deg) 80% 66% / 0.98),
+    hsl(calc((var(--hue, 160) + 140) * 1deg) 75% 42% / 0.9)
+  );
+  box-shadow: 0 4px 18px color-mix(in oklab, var(--accent) 45%, transparent);
+}
+.voice-globe .voice-ring {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--accent) 70%, transparent);
+  opacity: 0;
+  animation: voice-ring 2.2s var(--ease-out, ease) infinite;
+}
+.voice-globe .voice-ring--2 {
+  animation-delay: 0.7s;
+}
+.voice-globe .voice-ring--3 {
+  animation-delay: 1.4s;
+}
+@keyframes globe-sway {
+  from { rotate: -14deg; }
+  to { rotate: 14deg; }
+}
+@keyframes voice-ring {
+  0% { scale: 0.72; opacity: 0.75; }
+  100% { scale: 1.65; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-globe .voice-dots,
+  .voice-globe .voice-meridian,
+  .voice-globe .voice-ring {
+    animation: none;
+  }
+}

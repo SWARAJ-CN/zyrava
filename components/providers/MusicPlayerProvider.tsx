@@ -12,7 +12,7 @@ import {
 } from "react";
 import type { Song } from "@/lib/saavn";
 import { searchSongs } from "@/lib/saavn";
-import { playbackKind } from "@/lib/taste";
+import { playbackKind, buildRadioFor, type FetchPool } from "@/lib/taste";
 import { useTaste } from "@/components/providers/TasteProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
 import { playPad as firePad, type PadName } from "@/lib/dj/pads";
@@ -22,9 +22,9 @@ import { playPad as firePad, type PadName } from "@/lib/dj/pads";
  * ------------------------------------------------------------------ */
 export type RepeatMode = "off" | "all" | "one";
 
-/** Master level the app opens at — deliberately quiet, so the first tap never
- *  blasts the room. Every reset returns here too. */
-export const DEFAULT_VOLUME = 0.01;
+/** Master level the app opens at and every reset returns to — full scale, so
+ *  the console knob and the player bar slider always agree at 100%. */
+export const DEFAULT_VOLUME = 1;
 
 export const FX_ORDER = [
   "echo",
@@ -133,6 +133,17 @@ export const BASS_PRESET_LABEL = "Bass boost";
  * Custom EQ — the user's own curve, remembered across sessions.       *
  * ------------------------------------------------------------------ */
 const CUSTOM_EQ_KEY = "music-custom-eq";
+/** Auto recommendation feed switch: remembered like the rest of the studio. */
+const AUTO_FEED_KEY = "zyrava:auto-feed";
+
+function readAutoFeed(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(AUTO_FEED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function readCustomEq(): number[] {
   if (typeof window === "undefined") return [...EQ_PRESETS[0].gains];
@@ -245,6 +256,9 @@ interface MusicPlayerValue {
   cycleRepeat: () => void;
   shuffle: boolean;
   toggleShuffle: () => void;
+  /** Taste-driven queue top-ups while playing (the sparkle switch near shuffle). */
+  autoFeed: boolean;
+  toggleAutoFeed: () => void;
   stop: () => void;
   /** Stop, clear the queue and close the studio panels (sign-out). */
   endSession: () => void;
@@ -410,6 +424,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [crossfade, setCrossfadeState] = useState(0);
   const crossfadeRef = useRef(0);
 
+  /* Auto recommendation feed — taste-driven top-ups of the queue while it
+   * plays. Deliberately separate from auto-next: the player always advances
+   * the way the listener set it; this only keeps the shelf below the needle. */
+  const [autoFeed, setAutoFeedState] = useState(readAutoFeed);
+  const autoFeedBusyRef = useRef(false);
+
   /* DJ effect rack + dynamics + sweep/sub trim. */
   const [fx, setFxState] = useState<FxLevels>({
     echo: 0,
@@ -527,10 +547,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, [fx, sweep, subDb, compAmt, limiterOn, loudnessOn]);
 
   /** Opening any DJ feature builds the rack once — while the rack is closed
-   *  the feature simply has no nodes to land on, so this is the moment. */
+   *  the feature simply has no nodes to land on, so this is the moment. The
+   *  EQ curve and space mode are watched too: a rebuilt light graph has an
+   *  empty rack, and settings left on from before must reopen it on their
+   *  own, without the console being opened first. */
   useEffect(() => {
-    if (djEngagedRef.current && !rackReadyRef.current) ensureRackRef.current();
-  }, [fx, sweep, subDb, compAmt, limiterOn, loudnessOn]);
+    const eqWanted = eqGains.some((gain) => gain !== 0);
+    const spaceWanted = spatialMode !== "off" && spatialMode !== "stereo";
+    if (
+      (djEngagedRef.current || eqWanted || spaceWanted) &&
+      !rackReadyRef.current
+    ) {
+      ensureRackRef.current();
+    }
+  }, [fx, sweep, subDb, compAmt, limiterOn, loudnessOn, eqGains, spatialMode]);
 
   const current = queue[index] ?? null;
 
@@ -962,7 +992,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const context = audioContextRef.current;
     const head = loCutNodeRef.current;
     if (!context || !head) return;
-    const eqOn = filtersRef.current.length > 0 && eqGainsRef.current.some((gain) => gain !== 0);
+    /* The wish comes from the listener's state, never from the rack's
+       contents: a rebuilt graph starts with an empty rack, but a saved EQ
+       curve or an active space mode is still wanted and must reopen it. */
+    const eqOn = eqGainsRef.current.some((gain) => gain !== 0);
     const spaceOn =
       spatialModeRef.current !== "off" && spatialModeRef.current !== "stereo";
     /**
@@ -1506,7 +1539,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   /* What the listener did to the track that just ended, and to the one
    * starting. Every start path funnels through the track change, so the log
    * gets one line per track instead of one per call site. */
-  const { record: recordTaste } = useTaste();
+  const { record: recordTaste, vector: tasteVector } = useTaste();
   const tasteSongRef = useRef<Song | null>(null);
   const queueEndRef = useRef<(() => boolean) | null>(null);
   const pendingEndRef = useRef(false);
@@ -1886,6 +1919,37 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /* Auto recommendation feed: while playing, keep at least two tracks of the
+   * listener's taste ready below the needle. Radio is grown around whichever
+   * track is actually on, seeded with the taste vector's artist words — the
+   * auto-next behaviour is left untouched, this only widens the queue. */
+  useEffect(() => {
+    if (!autoFeed || !playing || !current) return;
+    // Stop padding early: the last three tracks are already on deck.
+    if (queue.length - (index + 1) > 2) return;
+    if (autoFeedBusyRef.current) return;
+
+    let alive = true;
+    autoFeedBusyRef.current = true;
+    const pool: FetchPool = async (phrase, limit) => {
+      const found = await searchSongs(phrase, limit, 1);
+      return found.songs;
+    };
+    buildRadioFor(current, tasteVector?.artistWords ?? new Set<string>(), pool, 8)
+      .then((picks) => {
+        if (alive) appendQueue(picks.map((pick) => pick.song));
+      })
+      .catch(() => {
+        /* silence is the right fail — the next track change retries */
+      })
+      .finally(() => {
+        autoFeedBusyRef.current = false;
+      });
+    return () => {
+      alive = false;
+    };
+  }, [autoFeed, playing, current, queue, index, tasteVector?.artistWords, appendQueue]);
+
   const setPreampDb = useCallback((value: number) => {
     setPreampDbState(value);
   }, []);
@@ -1939,6 +2003,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const toggleShuffle = useCallback(() => {
     setShuffleState((on) => !on);
+  }, []);
+
+  const toggleAutoFeed = useCallback(() => {
+    setAutoFeedState((on) => {
+      try {
+        window.localStorage.setItem(AUTO_FEED_KEY, on ? "0" : "1");
+      } catch {
+        /* storage off costs only the memory of the switch */
+      }
+      return !on;
+    });
   }, []);
 
   const stop = useCallback(() => {
@@ -2357,6 +2432,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       cycleRepeat,
       shuffle,
       toggleShuffle,
+      autoFeed,
+      toggleAutoFeed,
       stop,
       endSession,
       jumpTo,
@@ -2429,6 +2506,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       cycleRepeat,
       shuffle,
       toggleShuffle,
+      autoFeed,
+      toggleAutoFeed,
       stop,
       endSession,
       jumpTo,

@@ -10,6 +10,7 @@ import { TasteProvider } from "@/components/providers/TasteProvider";
 import { OfflineProvider } from "@/components/providers/OfflineProvider";
 import { PlaybackSessionGuard } from "@/components/providers/PlaybackSessionGuard";
 import { PwaProvider } from "@/components/providers/PwaProvider";
+import { IdleNotifier } from "@/components/providers/IdleNotifier";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { ToastProvider } from "@/components/providers/ToastProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
@@ -90,6 +91,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full bg-background text-foreground">
         <I18nProvider initialLocale={locale}>
           <PwaProvider>
+            <IdleNotifier />
             <ThemeProvider>
               <AuthProvider>
                 <ToastProvider>

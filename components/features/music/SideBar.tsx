@@ -897,6 +897,19 @@ export function SideBar() {
     return () => window.removeEventListener("keydown", onKey);
   }, [sidebarWide, setSidebarWide]);
 
+  /* The dock body re-fades each time the width tips: restarting the CSS
+     animation (via a reflow) keeps DockBody's own state — the chosen tab, a
+     half-written playlist — while the content still cross-fades over the
+     width spring. */
+  const morphRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const body = morphRef.current;
+    if (!body) return;
+    body.classList.remove("dock-morph-run");
+    void body.offsetWidth;
+    body.classList.add("dock-morph-run");
+  }, [sidebarWide]);
+
   return (
     <>
       <aside
@@ -904,11 +917,15 @@ export function SideBar() {
         data-wide={sidebarWide || undefined}
         className={cn(
           "fixed inset-y-0 start-0 z-30 hidden flex-col overflow-clip border-e border-dock-line bg-dock md:flex",
-          "motion-safe:transition-[width] motion-safe:duration-300 motion-safe:ease-(--ease-out)",
+          "dock-width",
           sidebarWide ? "w-[var(--dock-wide)]" : "w-[var(--dock-rail)]"
         )}
       >
-        <DockBody wide={sidebarWide} mobile={false} />
+        {/* The body cross-fades over the width spring (class re-triggered by
+            the effect below), so the rail reads as one body easing wide. */}
+        <div ref={morphRef} className="dock-morph">
+          <DockBody wide={sidebarWide} mobile={false} />
+        </div>
       </aside>
 
       <dialog

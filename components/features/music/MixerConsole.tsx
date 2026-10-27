@@ -1310,17 +1310,29 @@ function FaderStrip({
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const height = 152;
+  const pad = 8;
+  const handle = 24;
+  const travel = height - pad * 2 - handle;
   const min = -12;
   const max = 12;
   const fraction = (value - min) / (max - min);
   const dragRef = useRef(false);
+  /** Latest onChange — the window listeners below live for the whole mount,
+   *  so they must never read a stale closure from the first render. */
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   const apply = (clientY: number) => {
     const box = trackRef.current?.getBoundingClientRect();
     if (!box) return;
-    const fraction = Math.min(1, Math.max(0, 1 - (clientY - box.top) / box.height));
+    // Match the handle geometry: the pointer aims at the handle's centre,
+    // which travels between the rail top (+12 dB) and floor (−12 dB).
+    const raw = 1 - (clientY - box.top - pad - handle / 2) / travel;
+    const fraction = Math.min(1, Math.max(0, raw));
     const rounded = Math.round((min + fraction * (max - min)) * 2) / 2;
-    onChange(Number(rounded.toFixed(2)));
+    onChangeRef.current(Number(rounded.toFixed(2)));
   };
 
   useEffect(() => {
@@ -1379,15 +1391,18 @@ function FaderStrip({
             style={{ top: 8 + (tick * (height - 16)) / 8 }}
           />
         ))}
-        {/* Lit cap above the handle */}
+        {/* Lit fill from the handle down to the rail floor — grows with the gain. */}
         <div
           className="absolute inset-x-1/2 w-1 -translate-x-1/2 rounded-full bg-[linear-gradient(180deg,oklch(0.78_0.15_170),oklch(0.82_0.14_160))]"
-          style={{ top: 8, height: Math.max(1, fraction * (height - 16 - 24)) }}
+          style={{
+            top: height - 8 - Math.max(1, fraction * travel),
+            height: Math.max(1, fraction * travel),
+          }}
         />
         {/* Handle */}
         <div
           className="absolute left-1/2 h-6 w-6 -translate-x-1/2 rounded-md border border-white/20 bg-[linear-gradient(180deg,#2b3541,#151b23)] shadow-[0_3px_6px_rgba(0,0,0,0.55)]"
-          style={{ top: 8 + fraction * (height - 16 - 24) }}
+          style={{ top: 8 + (1 - fraction) * travel }}
         >
           <span className="absolute left-1/2 top-1.5 h-px w-3.5 -translate-x-1/2 bg-white/50" />
           <span className="absolute left-1/2 top-1/2 h-px w-3.5 -translate-x-1/2 bg-white/40" />

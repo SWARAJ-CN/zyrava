@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/icons";
+import { cn } from "@/lib/cn";
 import { useLibrary } from "@/components/providers/LibraryProvider";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import { tasteProfile, type RelatedPick } from "@/lib/related";
@@ -62,7 +63,7 @@ async function fetchRelated(song: Song, taste: Set<string>): Promise<RelatedPick
  */
 export function RelatedSongs({ song }: { song: Song }) {
   const { startQueue } = useMusicPlayer();
-  const { liked, playlists } = useLibrary();
+  const { liked, playlists, toggleLike } = useLibrary();
 
   /* The cache answers while a run is fresh; state only carries what an
    * in-flight request lands with, so switching seeds never needs a reset
@@ -150,41 +151,65 @@ export function RelatedSongs({ song }: { song: Song }) {
         ) : (
           <div className="flex flex-col gap-0.5">
             {shown.map((pick, index) => (
-              <button
+              <div
                 key={pick.song.id}
-                type="button"
-                onClick={() => startQueue(songs, label, index)}
-                aria-label={`Play ${pick.song.title} by ${pick.song.artist}`}
-                title={`${pick.reason} · ${pick.song.artist}`}
-                className="group flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-start transition-colors hover:bg-surface-secondary"
+                className="group flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 transition-colors hover:bg-surface-secondary"
               >
-                <span className="relative size-10 flex-none overflow-hidden rounded-md bg-surface-muted">
-                  {pick.song.image ? (
-                    <Image
-                      src={pick.song.image}
-                      alt=""
-                      width={80}
-                      height={80}
-                      sizes="40px"
-                      className="size-full object-cover"
-                    />
-                  ) : (
-                    <Icon name="music" className="m-auto size-4 text-faint-foreground" />
-                  )}
-                  <span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
-                    <Icon name="play" className="size-3 fill-white text-white" />
+                <button
+                  type="button"
+                  onClick={() => startQueue(songs, label, index)}
+                  aria-label={`Play ${pick.song.title} by ${pick.song.artist}`}
+                  title={`${pick.reason} · ${pick.song.artist}`}
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-start"
+                >
+                  <span className="relative size-10 flex-none overflow-hidden rounded-md bg-surface-muted">
+                    {pick.song.image ? (
+                      <Image
+                        src={pick.song.image}
+                        alt=""
+                        width={80}
+                        height={80}
+                        sizes="40px"
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      <Icon name="music" className="m-auto size-4 text-faint-foreground" />
+                    )}
+                    <span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Icon name="play" className="size-3 fill-white text-white" />
+                    </span>
                   </span>
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-semibold text-foreground">
-                    {pick.song.title}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-semibold text-foreground">
+                      {pick.song.title}
+                    </span>
+                    <span className="block truncate text-[11px] text-muted">{pick.song.artist}</span>
                   </span>
-                  <span className="block truncate text-[11px] text-muted">{pick.song.artist}</span>
-                </span>
+                </button>
                 <span className="flex-none text-[11px] tabular-nums text-faint-foreground">
                   {formatSeconds(pick.song.duration)}
                 </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => toggleLike(pick.song)}
+                  aria-pressed={liked.some((entry) => entry.id === pick.song.id)}
+                  aria-label={
+                    liked.some((entry) => entry.id === pick.song.id)
+                      ? `Remove ${pick.song.title} from Liked songs`
+                      : `Like ${pick.song.title}`
+                  }
+                  title={liked.some((entry) => entry.id === pick.song.id) ? "Liked" : "Like this song"}
+                  className="grid size-7 flex-none shrink-0 cursor-pointer place-items-center rounded-full transition-opacity opacity-0 md:opacity-100 hover:opacity-100 focus-visible:opacity-100"
+                >
+                  <Icon
+                    name="heart"
+                    className={cn(
+                      "size-4 text-muted transition-colors hover:text-danger",
+                      liked.some((entry) => entry.id === pick.song.id) && "fill-danger text-danger"
+                    )}
+                  />
+                </button>
+              </div>
             ))}
           </div>
         )}
