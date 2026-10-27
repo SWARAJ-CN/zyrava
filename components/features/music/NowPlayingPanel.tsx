@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import { RelatedSongs } from "@/components/features/music/RelatedSongs";
-import { BeatGlow } from "@/components/features/music/BeatGlow";
+import { BeatGlow, songHueSeed } from "@/components/features/music/BeatGlow";
 
 /**
  * The Spotify-style "Now playing" preview — a fixed glass card docked to the
@@ -35,7 +35,7 @@ export function NowPlayingPanel() {
       className="fixed end-4 top-4 bottom-[8.25rem] z-30 hidden w-[21.75rem] flex-none flex-col overflow-hidden rounded-xl border border-separator bg-surface-secondary/85 shadow-pop backdrop-blur-xl xl:flex"
     >
       {/* Beat-driven RGB lights behind the card's surface. */}
-      <BeatGlow getAnalyser={getAnalyser} playing={playing} />
+      <BeatGlow getAnalyser={getAnalyser} playing={playing} hueSeed={songHueSeed(current.id)} />
       {/* Header — Spotify's light top row */}
       <div className="relative z-10 flex items-center justify-between gap-2 px-5 pb-3 pt-4">
         <p className="truncate text-sm font-bold text-foreground">{queueLabel || "Now playing"}</p>

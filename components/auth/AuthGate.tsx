@@ -144,7 +144,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
             <span className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-accent motion-safe:animate-[splash-sweep_1.4s_ease-in-out_infinite]" />
           </span>
           <p className="text-[11px] tracking-wide text-faint-foreground">
-            Restoring your session
+            Hey it's you Hmmm....?
           </p>
         </div>
       </div>

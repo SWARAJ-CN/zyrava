@@ -8,7 +8,17 @@ interface BeatGlowProps {
   getAnalyser: () => AnalyserNode | null;
   /** Live status: a paused/empty stream glows down to its resting level. */
   playing: boolean;
+  /** Starting point on the colour wheel, so a new track shifts the palette. */
+  hueSeed?: number;
   className?: string;
+}
+
+/** Stable 0-359 colour-wheel offset for a track id. */
+export function songHueSeed(id: string | null | undefined): number {
+  if (!id) return 0;
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return hash % 360;
 }
 
 /** Bass band the beat reading comes from: everything under ~250 Hz. */
@@ -27,7 +37,7 @@ const RELEASE = 0.06;
  * Purely decorative — aria-hidden, pointer-events none, and disabled for
  * reduced motion, where CSS keeps the blobs at a gentle static hue.
  */
-export function BeatGlow({ getAnalyser, playing, className }: BeatGlowProps) {
+export function BeatGlow({ getAnalyser, playing, hueSeed = 0, className }: BeatGlowProps) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,13 +68,13 @@ export function BeatGlow({ getAnalyser, playing, className }: BeatGlowProps) {
           : 0;
       level = target > level ? level + (target - level) * ATTACK : level + (target - level) * RELEASE;
       root.style.setProperty("--beat", level.toFixed(3));
-      // One full colour wheel every 23 seconds — slow enough to soothe.
-      root.style.setProperty("--hue", ((time / 23_000) % 1 * 360).toFixed(1));
+      // One full colour wheel every 23 seconds, started at the track's seed.
+      root.style.setProperty("--hue", ((((time / 23_000) % 1) * 360 + hueSeed) % 360).toFixed(1));
     };
 
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [getAnalyser, playing]);
+  }, [getAnalyser, playing, hueSeed]);
 
   return (
     <div ref={rootRef} aria-hidden className={cn("beat-glow", className)}>

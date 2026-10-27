@@ -9,6 +9,7 @@ import { EmptyState, Notice, Skeleton, Spinner } from "@/components/ui/Feedback"
 import { Icon } from "@/components/ui/icons";
 import { RegionCarousel } from "@/components/features/music/RegionCarousel";
 import { NowPlayingPanel } from "@/components/features/music/NowPlayingPanel";
+import { BeatGlow, songHueSeed } from "@/components/features/music/BeatGlow";
 import { SearchWithSuggestions } from "@/components/features/music/SearchWithSuggestions";
 import { PlaylistsView } from "@/components/features/music/PlaylistsView";
 import { LikedView } from "@/components/features/music/LikedView";
@@ -694,12 +695,15 @@ export default function MusicPage() {
       {/* Oversized wordmark — a barely-there watermark behind the header,
           absolutely placed so it owns no layout space. */}
       <div className="relative">
-        <span
+        <div
           aria-hidden
-          className="pointer-events-none absolute -top-5 end-0 select-none text-[clamp(5rem,15vw,13rem)] font-black leading-none tracking-tighter text-foreground/[0.045]"
+          className="pointer-events-none absolute -top-5 end-0 flex select-none"
         >
-          ZYRAVA
-        </span>
+          <BeatGlow getAnalyser={getAnalyser} playing={playing} hueSeed={songHueSeed(activeId)} />
+          <span className="relative z-[1] text-[clamp(5rem,15vw,13rem)] font-black leading-none tracking-tighter text-foreground/[0.045]">
+            ZYRAVA
+          </span>
+        </div>
         <PageHeader
           title="ZYRAVA"
           leading={

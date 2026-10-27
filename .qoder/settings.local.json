@@ -36,7 +36,11 @@
       "Bash(grep -rn \"C1 challenge\\\\|read-sequence\\\\|in-memory error\" /home/kali/.qoder /home/kali/ZYRAVA --include='*' -l 2>/dev/null | grep -v node_modules | head; echo \"---qoder settings---\"; ls /home/kali/.qoder 2>/dev/null; cat /home/kali/.qoder/settings.json 2>/dev/null | head -40)",
       "Bash(grep -n \"C1 challenge\\\\|Read tool error\" /home/kali/.zshrc /home/kali/.zprofile /home/kali/.zshenv /home/kali/.profile /home/kali/.bashrc 2>/dev/null; echo \"---\"; grep -rn \"challenge\" /home/kali/.config/zsh 2>/dev/null | head)",
       "Read(//home/kali/**)",
-      "Bash(cd /home/kali/ZYRAVA/client && grep -o \"C1 challenge[^\\\\\\\\\\\\\"]*\" .qoder/settings.local.json | head -3; echo \"---transcript context---\"; grep -B2 -A2 \"C1 challenge\" /home/kali/.qoder/projects/-home-kali-ZYRAVA-client/4a8bf7dd-0926-4931-a260-06b4308c7d23.jsonl 2>/dev/null | head -c 1500)"
+      "Bash(cd /home/kali/ZYRAVA/client && grep -o \"C1 challenge[^\\\\\\\\\\\\\"]*\" .qoder/settings.local.json | head -3; echo \"---transcript context---\"; grep -B2 -A2 \"C1 challenge\" /home/kali/.qoder/projects/-home-kali-ZYRAVA-client/4a8bf7dd-0926-4931-a260-06b4308c7d23.jsonl 2>/dev/null | head -c 1500)",
+      "Bash(cd /home/kali/ZYRAVA/client && npx tsc --noEmit 2>&1 | tail -10; echo \"tsc_exit=$?\"; npx eslint components/providers/MusicPlayerProvider.tsx 2>&1 | tail -10; echo \"lint_exit=$?\")",
+      "Bash(cd /home/kali/ZYRAVA/client && npx eslint components/providers/MusicPlayerProvider.tsx components/features/music/MixerConsole.tsx components/features/music/StickyPlayerBar.tsx components/features/music/SearchWithSuggestions.tsx && echo LINT_OK)",
+      "Bash(cd /home/kali/ZYRAVA/client && npx tsc --noEmit && echo TSC_OK)",
+      "Bash(cd /home/kali/ZYRAVA/client && rm -f /tmp/zyrava-verify.log && \\(npx next dev -p 3113 > /tmp/zyrava-verify.log 2>&1 &\\) && sleep 10 && curl -s -o /dev/null -w \"home http=%{http_code}\\\\n\" -m 15 http://localhost:3113/ && tail -3 /tmp/zyrava-verify.log)"
     ]
   }
 }
