@@ -39,12 +39,15 @@ function masterLevel(volume: number, muted: boolean, preampDb: number): number {
   return muted ? 0 : appliedVolume(volume) * Math.pow(10, -Math.max(0, preampDb) / 20);
 }
 
-/** EQ presets move the tone, never the loudness: the ladder's biggest boost
- *  is trimmed back out at its output, so Flat → Bass boost keeps the same
- *  perceived level and the master fader stays the only volume control. */
+/** EQ presets move the tone, never the loudness: the ladder's added energy
+ *  — halfway between its single biggest boost and the average of all bands —
+ *  is trimmed back at its output. Full-max trimming made every un-boosted
+ *  preset ~9 dB quieter than Flat, so switching back to Flat exploded;
+ *  trimming by perceived energy keeps both directions near level. */
 function eqMakeupGain(gains: number[]): number {
   const maxBoost = Math.max(0, ...gains);
-  return Math.pow(10, -maxBoost / 20);
+  const rms = Math.sqrt(gains.reduce((sum, g) => sum + g * g, 0) / gains.length);
+  return Math.pow(10, -(maxBoost + rms) / 2 / 20);
 }
 
 export const FX_ORDER = [
@@ -924,14 +927,21 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
    * Everything is set in place on existing nodes — zero rewiring, zero clicks.
    */
   const applyFX = useCallback(() => {
+    /* Every knob write glides. A bare `.value =` on a live node is a step
+       discontinuity — the source of the grainy crackle while dragging
+       faders or toggling stages. */
+    const context = audioContextRef.current;
+    if (!context) return;
+    const glide = (param: AudioParam, value: number, tc = 0.04) =>
+      param.setTargetAtTime(value, context.currentTime, tc);
     const stages = fxStagesRef.current;
     if (stages) {
       FX_ORDER.forEach((name) => {
         const stage = stages.get(name);
         if (!stage) return;
         const wet = Math.min(1, Math.max(0, fx[name]));
-        stage.dry.gain.value = 1 - wet * 0.85;
-        stage.wet.gain.value = wet;
+        glide(stage.dry.gain, 1 - wet * 0.85);
+        glide(stage.wet.gain, wet);
       });
     }
     if (shaperRef.current) shaperRef.current.curve = driveCurve(fx.drive);
@@ -940,28 +950,28 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const hp = sweepHpRef.current;
       if (sweep <= 0) {
         // Negative: high-pass gate closing toward 3 kHz.
-        lp.frequency.value = 20000;
-        hp.frequency.value = 20 + Math.pow(-sweep, 1.6) * 3000;
+        glide(lp.frequency, 20000, 0.03);
+        glide(hp.frequency, 20 + Math.pow(-sweep, 1.6) * 3000, 0.03);
       } else {
         // Positive: low-pass fade sliding down to 300 Hz.
-        hp.frequency.value = 20;
-        lp.frequency.value = Math.max(300, 20000 * Math.pow(0.015, sweep));
+        glide(hp.frequency, 20, 0.03);
+        glide(lp.frequency, Math.max(300, 20000 * Math.pow(0.015, sweep)), 0.03);
       }
     }
-    if (subShelfRef.current) subShelfRef.current.gain.value = subDb;
+    if (subShelfRef.current) glide(subShelfRef.current.gain, subDb);
     if (stGainRef.current && stDepthRef.current) {
       const depth = Math.min(0.5, fx.stutter * 0.45);
-      stGainRef.current.gain.value = 1 - depth;
-      stDepthRef.current.gain.value = depth;
+      glide(stGainRef.current.gain, 1 - depth);
+      glide(stDepthRef.current.gain, depth);
     }
     if (compRef.current) {
       if (compAmt <= 0) {
-        compRef.current.threshold.value = 0;
-        compRef.current.ratio.value = 1;
+        glide(compRef.current.threshold, 0);
+        glide(compRef.current.ratio, 1);
         compRef.current.knee.value = 30;
       } else {
-        compRef.current.threshold.value = -2 - 36 * compAmt;
-        compRef.current.ratio.value = 1 + 11 * compAmt;
+        glide(compRef.current.threshold, -2 - 36 * compAmt);
+        glide(compRef.current.ratio, 1 + 11 * compAmt);
         compRef.current.knee.value = 8;
         compRef.current.attack.value = 0.004;
         compRef.current.release.value = 0.18;
@@ -969,8 +979,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     if (limitRef.current) {
       if (!limiterOn) {
-        limitRef.current.threshold.value = 0;
-        limitRef.current.ratio.value = 1;
+        glide(limitRef.current.threshold, 0);
+        glide(limitRef.current.ratio, 1);
         limitRef.current.knee.value = 30;
       } else {
         limitRef.current.threshold.value = -2;
@@ -980,11 +990,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         limitRef.current.release.value = 0.07;
       }
     }
-    if (loudLowRef.current) loudLowRef.current.gain.value = loudnessOn ? 4 : 0;
-    if (loudHighRef.current) loudHighRef.current.gain.value = loudnessOn ? 2.5 : 0;
+    if (loudLowRef.current) glide(loudLowRef.current.gain, loudnessOn ? 4 : 0);
+    if (loudHighRef.current) glide(loudHighRef.current.gain, loudnessOn ? 2.5 : 0);
     if (busTrimRef.current) {
       const addedDb = Math.max(0, subDb) + (loudnessOn ? 4 : 0) + compAmt * 6;
-      busTrimRef.current.gain.value = Math.pow(10, -addedDb / 20);
+      glide(busTrimRef.current.gain, Math.pow(10, -addedDb / 20));
     }
   }, [fx, sweep, subDb, compAmt, limiterOn, loudnessOn]);
 
@@ -1020,12 +1030,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if ((eqOn || spaceOn || djEngagedRef.current) && !rackReadyRef.current) {
       ensureRackRef.current();
     }
+    /* Once the rack exists the head stays wired to the EQ ladder for good:
+       flat filters and a unity trim are sonically transparent, and keeping
+       one permanent route means preset switches only ever move gains — no
+       mid-song rewiring, which was the source of the crackle on Bass boost
+       → Flat. */
     const target: AudioNode =
-      (eqOn || spaceOn) && filtersRef.current.length > 0
+      filtersRef.current.length > 0
         ? filtersRef.current[0]
-        : rackReadyRef.current
-          ? djInRef.current ?? context.destination
-          : djOutRef.current ?? context.destination;
+        : djOutRef.current ?? context.destination;
     if (routeTargetRef.current === target) return; // unchanged route — no rewiring, no click
     if (routeTargetRef.current) {
       try {
@@ -1578,9 +1591,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     eqGainsRef.current = eqGains;
     filtersRef.current.forEach((filter, filterIndex) => {
-      filter.gain.value = eqGains[filterIndex];
+      filter.gain.setTargetAtTime(
+        eqGains[filterIndex],
+        filter.context.currentTime,
+        0.04
+      );
     });
-    if (eqTrimRef.current) eqTrimRef.current.gain.value = eqMakeupGain(eqGains);
+    const trim = eqTrimRef.current;
+    if (trim)
+      trim.gain.setTargetAtTime(
+        eqMakeupGain(eqGains),
+        trim.context.currentTime,
+        0.04
+      );
     applyRouting();
   }, [eqGains, applyRouting]);
 
