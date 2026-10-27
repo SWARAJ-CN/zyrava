@@ -40,7 +40,9 @@
       "Bash(cd /home/kali/ZYRAVA/client && npx tsc --noEmit 2>&1 | tail -10; echo \"tsc_exit=$?\"; npx eslint components/providers/MusicPlayerProvider.tsx 2>&1 | tail -10; echo \"lint_exit=$?\")",
       "Bash(cd /home/kali/ZYRAVA/client && npx eslint components/providers/MusicPlayerProvider.tsx components/features/music/MixerConsole.tsx components/features/music/StickyPlayerBar.tsx components/features/music/SearchWithSuggestions.tsx && echo LINT_OK)",
       "Bash(cd /home/kali/ZYRAVA/client && npx tsc --noEmit && echo TSC_OK)",
-      "Bash(cd /home/kali/ZYRAVA/client && rm -f /tmp/zyrava-verify.log && \\(npx next dev -p 3113 > /tmp/zyrava-verify.log 2>&1 &\\) && sleep 10 && curl -s -o /dev/null -w \"home http=%{http_code}\\\\n\" -m 15 http://localhost:3113/ && tail -3 /tmp/zyrava-verify.log)"
+      "Bash(cd /home/kali/ZYRAVA/client && rm -f /tmp/zyrava-verify.log && \\(npx next dev -p 3113 > /tmp/zyrava-verify.log 2>&1 &\\) && sleep 10 && curl -s -o /dev/null -w \"home http=%{http_code}\\\\n\" -m 15 http://localhost:3113/ && tail -3 /tmp/zyrava-verify.log)",
+      "Bash(node:*)",
+      "Bash(cd /tmp && sed -e 's/PORT = 9339/PORT = 9341/' zyrava-init.mjs > zyrava-init2.mjs && node -e \"\nconst fs=require\\('fs'\\);let s=fs.readFileSync\\('/tmp/zyrava-init2.mjs','utf8'\\);\ns=s.replace\\('localStorage.setItem\\(\\\\\"music-custom-eq\\\\\"','localStorage.setItem\\(\\\\\"music-custom-eq\\\\\", JSON.stringify\\([6,6,6,6,6,6,6,6,6,6]\\)\\); sessionStorage.setItem\\(\\\\\"music-console\\\\\", JSON.stringify\\({volume:0.01,spatialMode:\\\\\"8d\\\\\"}\\)\\); localStorage.setItem\\(\\\\\"music-custom-eq\\\\\"'\\);\ns=s.replace\\('return \\\\\"AFTER REFRESH: dockVolume=\\\\\" + document.querySelector\\(\\\\x27input[aria-label=\\\\\"Master volume\\\\\"]\\\\x27\\)?.value;','return \\\\\"AFTER REFRESH: dockVolume=\\\\\" + document.querySelector\\(\\\\x27input[aria-label=\\\\\"Master volume\\\\\"]\\\\x27\\)?.value + \\\\\" | preset=\\\\\" + document.querySelector\\(\\\\x27select[aria-label=\\\\\"Equalizer preset\\\\\"]\\\\x27\\)?.value;'\\);\nfs.writeFileSync\\('/tmp/zyrava-init2.mjs',s\\);\" && node /tmp/zyrava-init2.mjs)"
     ]
   }
 }

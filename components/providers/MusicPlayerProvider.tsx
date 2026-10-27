@@ -129,10 +129,6 @@ export const EQ_PRESETS: EqPreset[] = [
 
 export const BASS_PRESET_LABEL = "Bass boost";
 
-/* ------------------------------------------------------------------ *
- * Custom EQ — the user's own curve, remembered across sessions.       *
- * ------------------------------------------------------------------ */
-const CUSTOM_EQ_KEY = "music-custom-eq";
 /** Auto recommendation feed switch: remembered like the rest of the studio. */
 const AUTO_FEED_KEY = "zyrava:auto-feed";
 
@@ -143,24 +139,6 @@ function readAutoFeed(): boolean {
   } catch {
     return false;
   }
-}
-
-function readCustomEq(): number[] {
-  if (typeof window === "undefined") return [...EQ_PRESETS[0].gains];
-  try {
-    const raw = window.localStorage.getItem(CUSTOM_EQ_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : null;
-    if (
-      Array.isArray(parsed) &&
-      parsed.length === EQ_BANDS.length &&
-      parsed.every((value) => typeof value === "number" && Number.isFinite(value))
-    ) {
-      return (parsed as number[]).map((value) => Math.min(12, Math.max(-12, value)));
-    }
-  } catch {
-    /* storage can be unavailable in private mode */
-  }
-  return [...EQ_PRESETS[0].gains];
 }
 
 /** Immersive playback modes wired in between the EQ and the analyser. */
@@ -191,72 +169,17 @@ export const SPATIAL_MODES: Array<{ value: SpatialMode; label: string; hint: str
   { value: "echo", label: "Echo", hint: "Warm space tail" },
 ];
 
-/* ------------------------------------------------------------------ *
- * Console persistence — every mixer knob, fader and switch survives
- * a refresh, so the sound the listener built keeps its shape.
- * ------------------------------------------------------------------ */
-const CONSOLE_KEY = "music-console";
-
-interface ConsolePrefs {
-  volume: number;
-  preampDb: number;
-  balance: number;
-  rate: number;
-  spatialMode: SpatialMode;
-  loCut: boolean;
-  sweep: number;
-  subDb: number;
-  compAmt: number;
-  limiterOn: boolean;
-  loudnessOn: boolean;
-  crossfade: number;
-  fx: FxLevels;
-}
-
-function readConsole(): Partial<ConsolePrefs> {
-  if (typeof window === "undefined") return {};
-  try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(CONSOLE_KEY) || "{}");
-    return parsed && typeof parsed === "object" ? (parsed as Partial<ConsolePrefs>) : {};
-  } catch {
-    /* storage off or corrupt — defaults carry on */
-    return {};
-  }
-}
-
-function readNum(value: unknown, fallback: number, lo: number, hi: number): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.min(hi, Math.max(lo, value))
-    : fallback;
-}
-
-function readBool(value: unknown, fallback: boolean): boolean {
-  return typeof value === "boolean" ? value : fallback;
-}
-
-function readMode(value: unknown, fallback: SpatialMode): SpatialMode {
-  return SPATIAL_MODES.some((mode) => mode.value === value) ? (value as SpatialMode) : fallback;
-}
-
-function readFx(value: unknown): FxLevels {
-  const levels: FxLevels = {
-    echo: 0,
-    reverb: 0,
-    flanger: 0,
-    chorus: 0,
-    phaser: 0,
-    drive: 0,
-    roll: 0,
-    stutter: 0,
-  };
-  if (value && typeof value === "object") {
-    const saved = value as Record<string, unknown>;
-    FX_ORDER.forEach((name) => {
-      levels[name] = readNum(saved[name], 0, 0, 1);
-    });
-  }
-  return levels;
-}
+/** All FX slots silent — the console's starting point. */
+const FX_SILENCE: FxLevels = {
+  echo: 0,
+  reverb: 0,
+  flanger: 0,
+  chorus: 0,
+  phaser: 0,
+  drive: 0,
+  roll: 0,
+  stutter: 0,
+};
 
 interface MusicPlayerValue {
   queue: Song[];
@@ -453,40 +376,29 @@ const SUSPENDS_GRAPH_WHEN_HIDDEN =
  */
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const { openPlaybackUrl } = useOffline();
-  /** One storage read per session — every console hook hydrates from it. */
-  const persisted = useMemo(() => readConsole(), []);
   const [queue, setQueue] = useState<Song[]>([]);
   const [queueLabel, setQueueLabel] = useState("");
   const [index, setIndex] = useState(-1);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolumeState] = useState(() =>
-    readNum(persisted.volume, DEFAULT_VOLUME, 0, 1)
-  );
+  const [volume, setVolumeState] = useState(DEFAULT_VOLUME);
   const [muted, setMutedState] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
 
-  const [eqPreset, setEqPreset] = useState<string>(() =>
-    readCustomEq().some((gain) => gain !== 0) ? "Custom" : "Flat"
-  );
-  const [eqGains, setEqGains] = useState<number[]>(() => {
-    const saved = readCustomEq();
-    return saved.some((gain) => gain !== 0) ? saved : [...EQ_PRESETS[0].gains];
-  });
+  const [eqPreset, setEqPreset] = useState("Flat");
+  const [eqGains, setEqGains] = useState<number[]>([...EQ_PRESETS[0].gains]);
   /** The user's own ten-band curve, saved separately from the factory presets. */
-  const [customEqGains, setCustomEqGains] = useState<number[]>(readCustomEq);
-  const [spatialMode, setSpatialModeState] = useState<SpatialMode>(() =>
-    readMode(persisted.spatialMode, "off")
-  );
+  const [customEqGains, setCustomEqGains] = useState<number[]>([...EQ_PRESETS[0].gains]);
+  const [spatialMode, setSpatialModeState] = useState<SpatialMode>("off");
   const [visualizerReady, setVisualizerReady] = useState(false);
   const [nowPlayingOpen, setNowPlayingOpenState] = useState(false);
 
   /* Studio mixer values — refs mirror them so the graph reads the freshest
    * value the moment nodes are built. */
-  const [preampDb, setPreampDbState] = useState(() => readNum(persisted.preampDb, 0, -6, 12));
-  const [balance, setBalanceState] = useState(() => readNum(persisted.balance, 0, -1, 1));
-  const [rate, setRateState] = useState(() => readNum(persisted.rate, 1, 0.7, 1.3));
+  const [preampDb, setPreampDbState] = useState(0);
+  const [balance, setBalanceState] = useState(0);
+  const [rate, setRateState] = useState(1);
   const preampDbRef = useRef(preampDb);
   const balanceRef = useRef(balance);
   const rateRef = useRef(rate);
@@ -499,7 +411,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   /* DJ transport — repeat / shuffle / transition hand-off. */
   const [repeat, setRepeatState] = useState<RepeatMode>("off");
   const [shuffle, setShuffleState] = useState(false);
-  const [crossfade, setCrossfadeState] = useState(() => readNum(persisted.crossfade, 0, 0, 8));
+  const [crossfade, setCrossfadeState] = useState(0);
   const crossfadeRef = useRef(crossfade);
 
   /* Auto recommendation feed — taste-driven top-ups of the queue while it
@@ -509,12 +421,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const autoFeedBusyRef = useRef(false);
 
   /* DJ effect rack + dynamics + sweep/sub trim. */
-  const [fx, setFxState] = useState<FxLevels>(() => readFx(persisted.fx));
-  const [sweep, setSweepState] = useState(() => readNum(persisted.sweep, 0, -1, 1));
-  const [subDb, setSubDbState] = useState(() => readNum(persisted.subDb, 0, -12, 12));
-  const [compAmt, setCompAmtState] = useState(() => readNum(persisted.compAmt, 0, 0, 1));
-  const [limiterOn, setLimiterOnState] = useState(() => readBool(persisted.limiterOn, false));
-  const [loudnessOn, setLoudnessOnState] = useState(() => readBool(persisted.loudnessOn, false));
+  const [fx, setFxState] = useState<FxLevels>({ ...FX_SILENCE });
+  const [sweep, setSweepState] = useState(0);
+  const [subDb, setSubDbState] = useState(0);
+  const [compAmt, setCompAmtState] = useState(0);
+  const [limiterOn, setLimiterOnState] = useState(false);
+  const [loudnessOn, setLoudnessOnState] = useState(false);
 
   /* The FX rack / dynamics nodes, captured at graph build. */
   const djInRef = useRef<GainNode | null>(null);
@@ -546,7 +458,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   /** The node the routing currently feeds — reconnects only on real changes. */
   const routeTargetRef = useRef<AudioNode | null>(null);
   /** Low-cut stage state + mirror for the graph build. */
-  const [loCut, setLoCutState] = useState(() => readBool(persisted.loCut, false));
+  const [loCut, setLoCutState] = useState(false);
   const loCutRef = useRef(loCut);
   /** The high-pass node for the low-cut stage in the graph. */
   const loCutNodeRef = useRef<BiquadFilterNode | null>(null);
@@ -1870,45 +1782,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (audio) audio.playbackRate = rate;
   }, [rate]);
 
-  /* Console memory — every knob, fader and switch comes back after a
-   * refresh, so the built sound survives a reload. */
-  useEffect(() => {
-    try {
-      const prefs: ConsolePrefs = {
-        volume,
-        preampDb,
-        balance,
-        rate,
-        spatialMode,
-        loCut,
-        sweep,
-        subDb,
-        compAmt,
-        limiterOn,
-        loudnessOn,
-        crossfade,
-        fx,
-      };
-      window.localStorage.setItem(CONSOLE_KEY, JSON.stringify(prefs));
-    } catch {
-      /* storage off costs only the memory of the console */
-    }
-  }, [
-    volume,
-    preampDb,
-    balance,
-    rate,
-    spatialMode,
-    loCut,
-    sweep,
-    subDb,
-    compAmt,
-    limiterOn,
-    loudnessOn,
-    crossfade,
-    fx,
-  ]);
-
   /**
    * Time tick handler — tracks listening seconds for the dashboard while the
    * progress state the seek bar consumes keeps updating as before.
@@ -2312,11 +2185,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const markEqCustom = useCallback((gains: number[]) => {
     setCustomEqGains([...gains]);
     setEqPreset("Custom");
-    try {
-      window.localStorage.setItem(CUSTOM_EQ_KEY, JSON.stringify(gains));
-    } catch {
-      /* storage can be unavailable in private mode */
-    }
   }, []);
 
   const applyCustomPreset = useCallback(() => {
