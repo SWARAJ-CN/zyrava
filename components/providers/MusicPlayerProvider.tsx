@@ -24,9 +24,24 @@ export type RepeatMode = "off" | "all" | "one";
 
 /** Master level the app opens at and every reset returns to — full scale, so
  *  the console knob and the player bar slider always agree at 100%. */
-/** Every page load starts the app master at 1% — the device volume carries
- *  the loudness; the console fader climbs from near silence from here. */
+/** Every page load starts clean: master at 1% (raised only by the listener),
+ *  Flat EQ, space off. */
 export const DEFAULT_VOLUME = 0.01;
+
+/** Slider → loudness curve. Perceived volume is logarithmic, so a raw 0.01
+ *  is inaudible; the quarter-power curve lands 1% on a solid, comfortably
+ *  loud listening level (~32% gain) and full scale still reaches 1. */
+export function appliedVolume(slider: number): number {
+  return slider <= 0 ? 0 : Math.pow(slider, 0.25);
+}
+
+/** EQ presets move the tone, never the loudness: the ladder's biggest boost
+ *  is trimmed back out at its output, so Flat → Bass boost keeps the same
+ *  perceived level and the master fader stays the only volume control. */
+function eqMakeupGain(gains: number[]): number {
+  const maxBoost = Math.max(0, ...gains);
+  return Math.pow(10, -maxBoost / 20);
+}
 
 export const FX_ORDER = [
   "echo",
@@ -469,6 +484,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const filtersRef = useRef<BiquadFilterNode[]>([]);
+  /** Post-EQ trim that cancels the curve's biggest boost (makeup gain). */
+  const eqTrimRef = useRef<GainNode | null>(null);
+  /** Post-rack trim cancelling sub/loudness/compression gain the same way. */
+  const busTrimRef = useRef<GainNode | null>(null);
   const eqGainsRef = useRef<number[]>(eqGains);
   /** Fixed entry/exit gains that the spatial FX rewire between. */
   const spaceInRef = useRef<GainNode | null>(null);
@@ -955,6 +974,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     if (loudLowRef.current) loudLowRef.current.gain.value = loudnessOn ? 4 : 0;
     if (loudHighRef.current) loudHighRef.current.gain.value = loudnessOn ? 2.5 : 0;
+    if (busTrimRef.current) {
+      const addedDb = Math.max(0, subDb) + (loudnessOn ? 4 : 0) + compAmt * 6;
+      busTrimRef.current.gain.value = Math.pow(10, -addedDb / 20);
+    }
   }, [fx, sweep, subDb, compAmt, limiterOn, loudnessOn]);
 
   // Run the rack parameters whenever any DJ control moves (and once after
@@ -1144,13 +1167,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       });
       const spaceIn = context.createGain();
       const spaceOut = context.createGain();
-      // Effects chain: filters → spatial section → the DJ bus.
+      // Effects chain: filters → makeup trim → spatial section → the DJ bus.
+      const eqTrim = context.createGain();
+      eqTrim.gain.value = eqMakeupGain(eqGainsRef.current);
       let node: AudioNode = filters[0];
       for (let filterIndex = 1; filterIndex < filters.length; filterIndex += 1) {
         node.connect(filters[filterIndex]);
         node = filters[filterIndex];
       }
-      node.connect(spaceIn);
+      node.connect(eqTrim);
+      eqTrim.connect(spaceIn);
 
       /* ── DJ rack — the master bus every route drains into. ── */
       const djIn = context.createGain();
@@ -1322,7 +1348,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       link(limit);
       link(loudLow);
       link(loudHigh);
-      chain.connect(output);
+      // Bus trim: the DJ stages only ever add loudness (sub shelf, loudness
+      // shelves, compression makeup) — this cancels exactly that, so no mode
+      // changes the level. The master fader stays the only volume control.
+      const busTrim = context.createGain();
+      chain.connect(busTrim);
+      busTrim.connect(output);
       spaceOut.connect(djIn);
 
       // The head leaves the light path; applyRouting picks its target after.
@@ -1333,6 +1364,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
 
       filtersRef.current = filters;
+      eqTrimRef.current = eqTrim;
+      busTrimRef.current = busTrim;
       djInRef.current = djIn;
       subShelfRef.current = subShelf;
       sweepLpRef.current = sweepLp;
@@ -1450,6 +1483,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     sourceRef.current = null;
     analyserRef.current = null;
     filtersRef.current = [];
+    eqTrimRef.current = null;
+    busTrimRef.current = null;
     preampNodeRef.current = null;
     panNodeRef.current = null;
     loCutNodeRef.current = null;
@@ -1516,6 +1551,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     filtersRef.current.forEach((filter, filterIndex) => {
       filter.gain.value = eqGains[filterIndex];
     });
+    if (eqTrimRef.current) eqTrimRef.current.gain.value = eqMakeupGain(eqGains);
     applyRouting();
   }, [eqGains, applyRouting]);
 
@@ -1781,7 +1817,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const audio = audioRef.current;
     if (audio) {
-      audio.volume = volume;
+      audio.volume = appliedVolume(volume);
       audio.muted = muted;
     }
   }, [volume, muted]);
