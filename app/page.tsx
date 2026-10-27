@@ -697,7 +697,7 @@ export default function MusicPage() {
       <div className="relative">
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-5 end-0 flex select-none"
+          className="pointer-events-none absolute -top-5 end-0 flex select-none overflow-hidden"
         >
           <BeatGlow getAnalyser={getAnalyser} playing={playing} hueSeed={songHueSeed(activeId)} />
           <span className="relative z-[1] text-[clamp(5rem,15vw,13rem)] font-black leading-none tracking-tighter text-foreground/[0.045]">

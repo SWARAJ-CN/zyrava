@@ -24,7 +24,9 @@ export type RepeatMode = "off" | "all" | "one";
 
 /** Master level the app opens at and every reset returns to — full scale, so
  *  the console knob and the player bar slider always agree at 100%. */
-export const DEFAULT_VOLUME = 1;
+/** Every page load starts the app master at 1% — the device volume carries
+ *  the loudness; the console fader climbs from near silence from here. */
+export const DEFAULT_VOLUME = 0.01;
 
 export const FX_ORDER = [
   "echo",
@@ -1634,7 +1636,38 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // below warms the cache so the following tracks take the full graph.
       setVisualizerReady(false);
       arm(refreshed ?? current.streamUrl);
-      if (hostname && refreshed === null) void probeCors(current.streamUrl, hostname);
+      if (hostname && refreshed === null) {
+        void probeCors(current.streamUrl, hostname).then((allowed) => {
+          // The probe passed while this track was still playing natively —
+          // wire the graph in now so EQ and space bite this song too, not
+          // just the next one. The element reloads with the CORS mode, so
+          // the play position is captured and restored across the swap.
+          if (
+            !allowed ||
+            cancelled ||
+            currentRef.current?.id !== current.id ||
+            audioContextRef.current
+          )
+            return;
+          const resumeAt = audio.currentTime;
+          swapUntilRef.current = Date.now() + 2500; // the reload's pause is ours
+          audio.crossOrigin = "anonymous";
+          audio.src = current.streamUrl;
+          audio.load();
+          const upgrade = () => {
+            audio.removeEventListener("canplay", upgrade);
+            setVisualizerReady(Boolean(ensureGraph()));
+            if (resumeAt > 1 && Math.abs(audio.currentTime - resumeAt) > 0.4) {
+              audio.currentTime = resumeAt;
+            }
+            if (shouldPlayRef.current) {
+              audioContextRef.current?.resume().catch(() => {});
+              audio.play().catch(() => undefined);
+            }
+          };
+          audio.addEventListener("canplay", upgrade, { once: true });
+        });
+      }
     };
     startStreamRef.current = startStream;
 
