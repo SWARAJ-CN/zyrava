@@ -89,7 +89,15 @@ export function PwaProvider({ children }: { children: ReactNode }) {
   const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production") return;
+    if (process.env.NODE_ENV !== "production") {
+      // A worker left over from an installed build would keep serving its
+      // frozen shell against the dev server — remove it and its caches.
+      navigator.serviceWorker?.getRegistrations().then((regs) => {
+        for (const reg of regs) void reg.unregister();
+      });
+      void caches?.keys().then((keys) => keys.map((key) => caches.delete(key)));
+      return;
+    }
     if (!("serviceWorker" in navigator)) return;
     navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
       /* An unavailable worker costs offline only, never the app itself. */

@@ -22,17 +22,21 @@ import { playPad as firePad, type PadName } from "@/lib/dj/pads";
  * ------------------------------------------------------------------ */
 export type RepeatMode = "off" | "all" | "one";
 
-/** Master level the app opens at and every reset returns to — full scale, so
- *  the console knob and the player bar slider always agree at 100%. */
 /** Every page load starts clean: master at 1% (raised only by the listener),
  *  Flat EQ, space off. */
 export const DEFAULT_VOLUME = 0.01;
 
 /** Slider → loudness curve. Perceived volume is logarithmic, so a raw 0.01
- *  is inaudible; the quarter-power curve lands 1% on a solid, comfortably
- *  loud listening level (~32% gain) and full scale still reaches 1. */
+ *  is inaudible; the fifth-power curve lands 1% on a solid, comfortably loud
+ *  listening level (~40% gain) and full scale still reaches 1. */
 export function appliedVolume(slider: number): number {
-  return slider <= 0 ? 0 : Math.pow(slider, 0.25);
+  return slider <= 0 ? 0 : Math.pow(slider, 0.2);
+}
+
+/** The graph's final gain: the fader's loudness-curved level, with any
+ *  pre-amp boost cancelled so no stage but the master moves the volume. */
+function masterLevel(volume: number, muted: boolean, preampDb: number): number {
+  return muted ? 0 : appliedVolume(volume) * Math.pow(10, -Math.max(0, preampDb) / 20);
 }
 
 /** EQ presets move the tone, never the loudness: the ladder's biggest boost
@@ -417,6 +421,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [balance, setBalanceState] = useState(0);
   const [rate, setRateState] = useState(1);
   const preampDbRef = useRef(preampDb);
+  const volumeRef = useRef(volume);
+  const mutedRef = useRef(muted);
   const balanceRef = useRef(balance);
   const rateRef = useRef(rate);
 
@@ -488,6 +494,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const eqTrimRef = useRef<GainNode | null>(null);
   /** Post-rack trim cancelling sub/loudness/compression gain the same way. */
   const busTrimRef = useRef<GainNode | null>(null);
+  /** The one true volume control — final stage before the speakers. */
+  const masterGainRef = useRef<GainNode | null>(null);
   const eqGainsRef = useRef<number[]>(eqGains);
   /** Fixed entry/exit gains that the spatial FX rewire between. */
   const spaceInRef = useRef<GainNode | null>(null);
@@ -1066,11 +1074,25 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       panNode.connect(loCutNode);
 
       /* Light path: head → master gain → speakers. djOut stays out front so
-         the Auto DJ crossfade envelope already has its endpoint. */
+         the Auto DJ crossfade envelope already has its endpoint. The final
+         masterGain node is the one true volume control — the slider's level
+         with pre-amp boost cancelled — so no other stage can move loudness. */
       const djOut = context.createGain();
       djOut.gain.value = 1;
       loCutNode.connect(djOut);
-      djOut.connect(context.destination);
+      const masterGain = context.createGain();
+      masterGain.gain.value = masterLevel(
+        volumeRef.current,
+        mutedRef.current,
+        preampDbRef.current
+      );
+      djOut.connect(masterGain);
+      masterGain.connect(context.destination);
+      masterGainRef.current = masterGain;
+      // The master node owns the level from here — left at its fallback the
+      // element's own volume would attenuate the signal a second time.
+      audio.volume = 1;
+      audio.muted = false;
 
       const analyser = context.createAnalyser();
       analyser.fftSize = 256;
@@ -1485,6 +1507,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     filtersRef.current = [];
     eqTrimRef.current = null;
     busTrimRef.current = null;
+    masterGainRef.current = null;
+    // Back on the element's own volume until the graph returns.
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = appliedVolume(volumeRef.current);
+      audio.muted = mutedRef.current;
+    }
     preampNodeRef.current = null;
     panNodeRef.current = null;
     loCutNodeRef.current = null;
@@ -1813,10 +1842,25 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     queueEndRef.current = handler;
   }, []);
 
-  // Keep the element's volume/mute in sync with the controls.
+  // Volume/mute land on the graph's master gain when it exists — the single
+  // stage that decides loudness. Without a graph (native playback) the
+  // element itself carries the level.
   useEffect(() => {
+    volumeRef.current = volume;
+    mutedRef.current = muted;
+    const master = masterGainRef.current;
     const audio = audioRef.current;
-    if (audio) {
+    if (master) {
+      master.gain.setTargetAtTime(
+        masterLevel(volume, muted, preampDbRef.current),
+        master.context.currentTime,
+        0.03
+      );
+      if (audio) {
+        audio.volume = 1;
+        audio.muted = false;
+      }
+    } else if (audio) {
       audio.volume = appliedVolume(volume);
       audio.muted = muted;
     }
@@ -1828,6 +1872,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     preampDbRef.current = preampDb;
     const node = preampNodeRef.current;
     if (node) node.gain.value = Math.pow(10, preampDb / 20);
+    // Its boost is cancelled again at the master, so it drives the chain's
+    // texture without ever moving the output level.
+    const master = masterGainRef.current;
+    if (master) {
+      master.gain.setTargetAtTime(
+        masterLevel(volumeRef.current, mutedRef.current, preampDb),
+        master.context.currentTime,
+        0.03
+      );
+    }
   }, [preampDb]);
 
   useEffect(() => {
