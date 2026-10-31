@@ -2,9 +2,11 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { InlineScript } from "@/components/InlineScript";
+import { VisitBeacon } from "@/components/VisitBeacon";
 import { AppChrome } from "@/components/AppChrome";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { GuestLockProvider } from "@/components/providers/GuestLockProvider";
 import { LibraryProvider } from "@/components/providers/LibraryProvider";
 import { TasteProvider } from "@/components/providers/TasteProvider";
 import { OfflineProvider } from "@/components/providers/OfflineProvider";
@@ -91,22 +93,25 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full bg-background text-foreground">
         <I18nProvider initialLocale={locale}>
           <PwaProvider>
+            <VisitBeacon />
             <IdleNotifier />
             <ThemeProvider>
               <AuthProvider>
-                <ToastProvider>
-                  <TasteProvider>
-                    <OfflineProvider>
-                    <MusicPlayerProvider>
-                      <LibraryProvider>
-                        <PlaybackSessionGuard />
-                        <AppChrome />
-                        <AuthGate>{children}</AuthGate>
-                      </LibraryProvider>
-                    </MusicPlayerProvider>
-                  </OfflineProvider>
-                  </TasteProvider>
-                </ToastProvider>
+                <GuestLockProvider>
+                  <ToastProvider>
+                    <TasteProvider>
+                      <OfflineProvider>
+                        <MusicPlayerProvider>
+                          <LibraryProvider>
+                            <PlaybackSessionGuard />
+                            <AppChrome />
+                            <AuthGate>{children}</AuthGate>
+                          </LibraryProvider>
+                        </MusicPlayerProvider>
+                      </OfflineProvider>
+                    </TasteProvider>
+                  </ToastProvider>
+                </GuestLockProvider>
               </AuthProvider>
             </ThemeProvider>
           </PwaProvider>

@@ -36,17 +36,21 @@ const SPLASH_GLYPHS: ReactNode[] = [
 export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { status } = useAuth();
+  const { status, expired } = useAuth();
   const isPublic = PUBLIC_ROUTES.has(pathname);
+  /* A stranger is a guest with the trial still running. Someone this device
+     has held an account for is a member whose session went stale, and gets the
+     sign-in screen rather than the locked shell. */
+  const isGuest = status === "anonymous" && !expired;
 
   useEffect(() => {
-    if (isPublic || status !== "anonymous") return;
+    if (isPublic || !(status === "anonymous" && expired)) return;
     const next = pathname && pathname !== "/" ? `?next=${encodeURIComponent(pathname)}` : "";
     router.replace(`/login${next}`);
-  }, [isPublic, status, pathname, router]);
+  }, [isPublic, status, expired, pathname, router]);
 
   if (isPublic) return <>{children}</>;
-  if (status === "authenticated") return <>{children}</>;
+  if (status === "authenticated" || isGuest) return <>{children}</>;
 
   return (
     <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-background px-6 text-foreground">

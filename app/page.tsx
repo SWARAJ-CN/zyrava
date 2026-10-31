@@ -18,6 +18,7 @@ import { SaveToDevice } from "@/components/features/music/SongRows";
 import { ImportSongsModal } from "@/components/features/music/ImportSongsModal";
 import { InstallModal } from "@/components/features/music/InstallModal";
 import { useTaste } from "@/components/providers/TasteProvider";
+import { useGuestLock } from "@/components/providers/GuestLockProvider";
 import { Recommendations } from "@/components/features/music/Recommendations";
 import { PlaylistStrip } from "@/components/features/music/PlaylistStrip";
 import { AnimatePresence, motion } from "framer-motion";
@@ -105,17 +106,22 @@ export default function MusicPage() {
   const [attempt, setAttempt] = useState(0);
   const [view, setView] = useState<ViewMode>(DEFAULT_VIEW);
   const [homeTab, setHomeTab] = useState<HomeTab>("songs");
+  const { isGuest, requireAuth } = useGuestLock();
 
   /* The PWA shortcut (a long-press on the app icon) lands on /?tab=liked and
-     friends — the launcher's chosen panel is honoured once, on arrival. */
+     friends — the launcher's chosen panel is honoured once, on arrival. A trial
+     visitor is steered to the shelves instead of straight into them, since this
+     path never passes the tab bar's guard. */
   useEffect(() => {
     const asked = new URLSearchParams(window.location.search).get("tab");
     if (!HOME_TABS.some((entry) => entry.value === asked)) return;
+    const wanted = asked as HomeTab;
+    if (isGuest && wanted !== "songs") return;
     // Deferred one frame: the server's choice paints first, then the
     // launcher's panel takes over without a hydration mismatch.
-    const timer = window.setTimeout(() => setHomeTab(asked as HomeTab), 0);
+    const timer = window.setTimeout(() => setHomeTab(wanted), 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [isGuest]);
   const [importOpen, setImportOpen] = useState(false);
 
   /* Multi-check filters — languages and "why am I listening" vibes. An empty
@@ -160,8 +166,10 @@ export default function MusicPage() {
   const lastSearchRef = useRef<string | null>(null);
 
   /** First look at the Offline tab is the import pitch — an empty list alone
-   *  would just read as a broken feature. */
+   *  would just read as a broken feature. Only the song feed is a guest's to
+   *  browse; the shelves that hold a listener's own things are not. */
   const openTab = (value: HomeTab) => {
+    if (value !== "songs" && !requireAuth("tab")) return;
     setHomeTab(value);
     if (value === "offline" && !locals.length) setImportOpen(true);
   };
@@ -259,8 +267,11 @@ export default function MusicPage() {
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  /** A page turn replaces the ten visible songs, then rests on the list. */
+  /** A page turn replaces the ten visible songs, then rests on the list. Page
+   *  one is what a trial visitor was given; the rest of the run is theirs to
+   *  ask for. */
   const openPage = (value: number) => {
+    if (value > 0 && !requireAuth("paging")) return;
     setBatch(value);
     document
       .getElementById("library-list")
@@ -622,17 +633,21 @@ export default function MusicPage() {
           : "Search results";
 
   /** Queue the visible page and hand that run to the page chain, so playback
-   *  walks into page 2, 3 … instead of looping these ten. */
+   *  walks into page 2, 3 … instead of looping these ten. A trial listener is
+   *  never handed to the chain — left out here, the growers below all stand
+   *  down and the ten stay ten. */
   const playFromPage = (songIndex: number) => {
-    chain.current = {
-      key: termKey,
-      page: batch,
-      // The queue's opening track, whatever position was pressed — it is the
-      // fingerprint that says "this queue is still the run we started".
-      firstId: songs[0]?.id ?? "",
-      turnToken: "",
-      empties: 0,
-    };
+    if (!isGuest) {
+      chain.current = {
+        key: termKey,
+        page: batch,
+        // The queue's opening track, whatever position was pressed — it is the
+        // fingerprint that says "this queue is still the run we started".
+        firstId: songs[0]?.id ?? "",
+        turnToken: "",
+        empties: 0,
+      };
+    }
     startQueue(songs, term, songIndex);
   };
 

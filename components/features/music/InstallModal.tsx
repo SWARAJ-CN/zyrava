@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/Modal";
 import { usePwa } from "@/components/providers/PwaProvider";
+import { useGuestLock } from "@/components/providers/GuestLockProvider";
 
 /** The app gets a moment on screen before it asks anything. */
 const ARRIVE_DELAY = 900;
@@ -30,6 +31,7 @@ const PERKS = [
  */
 export function InstallModal() {
   const { canInstall, installed, installing, install } = usePwa();
+  const { isGuest } = useGuestLock();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -54,6 +56,10 @@ export function InstallModal() {
       /* the session simply forgets the forgetting */
     }
   };
+
+  /* A visitor on the trial already has one ask standing over the music, and
+     installing an app they cannot yet use is not the thing to stack on it. */
+  if (isGuest) return null;
 
   return (
     <>

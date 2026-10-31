@@ -8,6 +8,7 @@ import { Icon } from "@/components/ui/icons";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { useGuestLock } from "@/components/providers/GuestLockProvider";
 import { useLibrary } from "@/components/providers/LibraryProvider";
 import { usePwa } from "@/components/providers/PwaProvider";
 import { useTheme } from "@/components/providers/ThemeProvider";
@@ -133,6 +134,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
   } = useMusicPlayer();
   const { resolved, toggle } = useTheme();
   const { user, status: authStatus, logout } = useAuth();
+  const { requireAuth } = useGuestLock();
   const { canInstall, install } = usePwa();
   const accountName = user?.name ?? user?.email ?? user?.phone ?? "Account";
   const accountInitial = accountName.slice(0, 1).toUpperCase();
@@ -244,6 +246,10 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
               aria-label={wide ? undefined : entry.label}
               aria-current={active || undefined}
               onClick={() => {
+                /* Browsing the page is free; the shelves, the readings and the
+                   console behind them are what an account is for. */
+                const reason = entry.value === "mixer" ? "mixer" : "tab";
+                if (entry.value !== "browse" && !requireAuth(reason)) return;
                 setTab(entry.value);
                 if (!wide) setSidebarWide(true);
               }}

@@ -15,6 +15,7 @@ import { searchSongs } from "@/lib/saavn";
 import { playbackKind, buildRadioFor, type FetchPool } from "@/lib/taste";
 import { useTaste } from "@/components/providers/TasteProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
+import { useGuestLock } from "@/components/providers/GuestLockProvider";
 import { playPad as firePad, type PadName } from "@/lib/dj/pads";
 
 /* ------------------------------------------------------------------ *
@@ -25,6 +26,11 @@ export type RepeatMode = "off" | "all" | "one";
 /** Every page load starts clean: master at 1% (raised only by the listener),
  *  Flat EQ, space off. */
 export const DEFAULT_VOLUME = 0.01;
+
+/** What a visitor who has not signed in gets to hear: one page of tracks.
+ *  Matches the library's own `PAGE_SIZE`, and is the reason a trial queue is
+ *  capped where it is built rather than only where the buttons are. */
+export const GUEST_PLAY_LIMIT = 10;
 
 /** Slider → loudness curve. Perceived volume is logarithmic, so a raw 0.01
  *  is inaudible; the fifth-power curve lands 1% on a solid, comfortably loud
@@ -400,6 +406,7 @@ const SUSPENDS_GRAPH_WHEN_HIDDEN =
  */
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const { openPlaybackUrl } = useOffline();
+  const { isGuest, requestLogin } = useGuestLock();
   const [queue, setQueue] = useState<Song[]>([]);
   const [queueLabel, setQueueLabel] = useState("");
   const [index, setIndex] = useState(-1);
@@ -2012,7 +2019,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const startQueue = useCallback(
     (list: Song[], label: string, position: number) => {
-      const track = list[position];
+      /* A trial run is ten tracks long no matter which surface started it — a
+         catalogue playlist or a related-songs rail would otherwise hand over
+         its whole length in one go. A press past the tenth lands on the last
+         song they are owed rather than on nothing. */
+      const run = isGuest ? list.slice(0, GUEST_PLAY_LIMIT) : list;
+      const track = run[Math.min(position, run.length - 1)];
       if (!track) return;
       // Pressing the tile that is already active toggles playback.
       if (queue[index]?.id === track.id) {
@@ -2020,9 +2032,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       shouldPlayRef.current = true;
-      setQueue(list);
+      setQueue(run);
       setQueueLabel(label);
-      setIndex(position);
+      setIndex(Math.min(position, run.length - 1));
       setSessionPlays((plays) => plays + 1);
       // The first play slides the side preview in — after that the user owns
       // the panel's visibility.
@@ -2031,7 +2043,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setNowPlayingOpenState(true);
       }
     },
-    [queue, index, togglePlay]
+    [queue, index, togglePlay, isGuest]
   );
 
   const setNowPlayingOpen = useCallback((open: boolean) => {
@@ -2040,14 +2052,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   /** Grow the running queue without disturbing what is playing — tracks that
    *  are already queued are skipped, so a repeated page can never double up. */
-  const appendQueue = useCallback((list: Song[]) => {
-    if (!list.length) return;
-    setQueue((previous) => {
-      const held = new Set(previous.map((song) => song.id));
-      const fresh = list.filter((song) => !held.has(song.id));
-      return fresh.length ? [...previous, ...fresh] : previous;
-    });
-  }, []);
+  const appendQueue = useCallback(
+    (list: Song[]) => {
+      /* Every grower goes through here — a paged list walking into its next
+         page and the auto-feed padding the taste queue — so the trial's ten
+         are refused at one door rather than at each. */
+      if (isGuest || !list.length) return;
+      setQueue((previous) => {
+        const held = new Set(previous.map((song) => song.id));
+        const fresh = list.filter((song) => !held.has(song.id));
+        return fresh.length ? [...previous, ...fresh] : previous;
+      });
+    },
+    [isGuest]
+  );
 
   /* Auto recommendation feed: while playing, keep at least two tracks of the
    * listener's taste ready below the needle. Radio is grown around whichever
@@ -2257,10 +2275,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setIndex(random);
         return;
       }
+      /* A trial listener's run ends at the last song they were handed: the
+         advance that would wrap is the wall, so the player stops and asks. */
+      if (isGuest && next >= queue.length) {
+        stop();
+        requestLogin("playback");
+        return;
+      }
       shouldPlayRef.current = true;
       setIndex(next >= queue.length ? 0 : next);
     },
-    [index, queue, shuffle]
+    [index, queue, shuffle, isGuest, requestLogin, stop]
   );
 
   /** Track end: repeat-one restarts in place; otherwise the queue advances
@@ -2284,6 +2309,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (atEnd) {
+      /* The trial's ten songs are the whole allowance: the last one ending is
+         a stop, not a return to the top, so the paged surfaces are never asked
+         to extend it. */
+      if (isGuest) {
+        stop();
+        requestLogin("playback");
+        return;
+      }
       /* The run is out of tracks. Ask the surface that started it for more
          first — a paged list walks into its next page here instead of
          restarting from the top or sitting silent. */
@@ -2302,7 +2335,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     shouldPlayRef.current = true;
     setIndex(atEnd ? 0 : index + 1);
-  }, [current, repeat, shuffle, queue, index]);
+  }, [current, repeat, shuffle, queue, index, isGuest, requestLogin, stop]);
 
   const seek = useCallback((seconds: number) => {
     const audio = audioRef.current;

@@ -13,6 +13,7 @@ import {
   type SpatialMode,
 } from "@/components/providers/MusicPlayerProvider";
 import { useLibrary } from "@/components/providers/LibraryProvider";
+import { useGuestLock } from "@/components/providers/GuestLockProvider";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 
@@ -67,6 +68,7 @@ export function StickyPlayerBar() {
   } = useMusicPlayer();
 
   const { isLiked, toggleLike, openPicker } = useLibrary();
+  const { requireAuth } = useGuestLock();
 
   if (!current) return null;
 
@@ -493,7 +495,12 @@ export function StickyPlayerBar() {
                   type="button"
                   title="Open the sound console"
                   aria-label="Open the full-screen sound console"
-                  onClick={() => setMixerOpen(true)}
+                  /* The console is not mounted for a trial listener, so this
+                     button spends its press on the ask instead of nothing. */
+                  onClick={() => {
+                    if (!requireAuth("mixer")) return;
+                    setMixerOpen(true);
+                  }}
                   className="hidden size-9 flex-none place-items-center rounded-full border border-separator text-muted transition-colors hover:text-foreground xl:grid"
                 >
                   <Icon name="sliders" className="size-4" />

@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Icon } from "@/components/ui/icons";
 import { useLibrary } from "@/components/providers/LibraryProvider";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
+import { useGuestLock } from "@/components/providers/GuestLockProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
 import { Waveform } from "@/components/features/music/Waveform";
 import { cn } from "@/lib/cn";
@@ -67,6 +68,7 @@ export function SongTableHead({ album = true }: { album?: boolean }) {
  */
 export function SaveToDevice({ song }: { song: Song }) {
   const { savedIds, progress, save, removeSaved } = useOffline();
+  const { requireAuth } = useGuestLock();
   const saved = savedIds.has(song.id);
   const busy = progress[song.id];
   const share = busy && busy.total > 0 ? busy.loaded / busy.total : 0;
@@ -75,7 +77,11 @@ export function SaveToDevice({ song }: { song: Song }) {
   return (
     <button
       type="button"
-      onClick={() => (saved ? void removeSaved(song.id) : void save(song))}
+      onClick={() => {
+        if (!requireAuth("tab")) return;
+        if (saved) void removeSaved(song.id);
+        else void save(song);
+      }}
       aria-pressed={saved}
       aria-label={
         saved ? `Take ${song.title} off this device` : `Save ${song.title} on this device`

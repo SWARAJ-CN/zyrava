@@ -12,6 +12,7 @@ import {
 } from "react";
 import { Icon } from "@/components/ui/icons";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { useGuestLock } from "@/components/providers/GuestLockProvider";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import { useTaste } from "@/components/providers/TasteProvider";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -119,6 +120,7 @@ async function uploadLibrary(local: LibraryState): Promise<void> {
  */
 export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const { requireAuth } = useGuestLock();
   const { startQueue } = useMusicPlayer();
   const { success, toast } = useToast();
   const { record } = useTaste();
@@ -200,6 +202,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
    */
   const commit = useCallback(
     (updater: (previous: LibraryState) => LibraryState, save: () => Promise<unknown>) => {
+      /* Nobody's library to change: a trial visitor is stopped here rather than
+         at the API, so no write is staged and no 401 ever reaches the toast. */
+      if (!user) return;
       const before = latest.current;
       setState((previous) => updater(previous));
       void save().catch((error: unknown) => {
@@ -211,7 +216,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         });
       });
     },
-    [toast]
+    [toast, user]
   );
 
   const isLiked = useCallback(
@@ -221,6 +226,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const toggleLike = useCallback(
     (song: Song) => {
+      if (!requireAuth("like")) return;
       const nowLiked = !state.liked.some((entry) => entry.id === song.id);
       record(nowLiked ? "like" : "unlike", song);
       commit(
@@ -238,11 +244,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       if (nowLiked) success("Added to Liked songs", song.title);
       else toast({ title: "Removed from Liked songs", description: song.title });
     },
-    [commit, record, state.liked, success, toast]
+    [commit, record, requireAuth, state.liked, success, toast]
   );
 
   const createPlaylist = useCallback(
     (rawName: string): string | null => {
+      if (!requireAuth("playlist")) return null;
       const name = rawName.trim().slice(0, MAX_NAME);
       if (!name) {
         setNameError("Give the playlist a name.");
@@ -266,11 +273,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       success("Playlist created", name);
       return playlist.id;
     },
-    [commit, state.playlists, success]
+    [commit, requireAuth, state.playlists, success]
   );
 
   const addToPlaylist = useCallback(
     (playlistId: string, song: Song) => {
+      if (!requireAuth("playlist")) return;
       const target = state.playlists.find((playlist) => playlist.id === playlistId);
       if (!target) return;
       const already = target.songs.some((entry) => entry.id === song.id);
@@ -292,7 +300,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       );
       success("Added to playlist", song.title);
     },
-    [commit, record, state.playlists, success, toast]
+    [commit, record, requireAuth, state.playlists, success, toast]
   );
 
   const removeFromPlaylist = useCallback(
@@ -327,15 +335,17 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   );
 
   const playLiked = useCallback(() => {
+    if (!requireAuth("tab")) return;
     if (!state.liked.length) {
       toast({ title: "Nothing liked yet", description: "Tap the heart on any song." });
       return;
     }
     startQueue(state.liked, "Liked songs", 0);
-  }, [state.liked, startQueue, toast]);
+  }, [requireAuth, state.liked, startQueue, toast]);
 
   const playPlaylist = useCallback(
     (id: string) => {
+      if (!requireAuth("tab")) return;
       const playlist = state.playlists.find((entry) => entry.id === id);
       if (!playlist?.songs.length) {
         toast({ title: "This playlist is empty", description: "Add a song with the + button." });
@@ -343,14 +353,18 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
       startQueue(playlist.songs, playlist.name, 0);
     },
-    [state.playlists, startQueue, toast]
+    [requireAuth, state.playlists, startQueue, toast]
   );
 
-  const openPicker = useCallback((song: Song) => {
-    setPickerSong(song);
-    setNameError(null);
-    setNewName("");
-  }, []);
+  const openPicker = useCallback(
+    (song: Song) => {
+      if (!requireAuth("playlist")) return;
+      setPickerSong(song);
+      setNameError(null);
+      setNewName("");
+    },
+    [requireAuth]
+  );
 
   const closePicker = useCallback(() => setPickerSong(null), []);
 

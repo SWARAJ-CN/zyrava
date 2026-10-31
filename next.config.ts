@@ -29,6 +29,9 @@ const nextConfig: NextConfig = {
     return [
       { source: "/api/auth/:path*", destination: `${accountApi}/api/auth/:path*` },
       { source: "/api/library/:path*", destination: `${accountApi}/api/library/:path*` },
+      // Arrival is recorded same-origin too: a cross-origin JSON POST would
+      // need a preflight, and a visitor's first request should not be one.
+      { source: "/api/visits", destination: `${accountApi}/api/visits` },
     ];
   },
 };
