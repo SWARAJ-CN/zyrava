@@ -1382,8 +1382,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         ["echo", "reverb", "flanger", "chorus", "phaser", "drive", "roll"] as const
       ).forEach((name) => {
         const stage = stages.get(name)!;
-        link(stage.input);
-        link(stage.output);
+        /* Enter at the slot's input and leave at its output: the input is
+           already wired to dry → output and wet → output inside the stage.
+           Linking input to output as well adds a second copy of the track
+           per slot — seven slots is 128× the level, which buried every
+           preset under clipping and left "Flat" sounding boosted. */
+        chain.connect(stage.input);
+        chain = stage.output;
       });
       link(stGain);
       link(comp);
