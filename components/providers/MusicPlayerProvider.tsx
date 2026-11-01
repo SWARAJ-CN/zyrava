@@ -314,16 +314,29 @@ interface MusicPlayerValue {
 
 const MusicPlayerContext = createContext<MusicPlayerValue | null>(null);
 
-/** Synthesized wet-noise impulse for the reverb convolver. */
+/**
+ * Synthesized wet-noise impulse for the reverb convolver.
+ *
+ * Convolution does not preserve loudness: the output's RMS is the input's
+ * times sqrt(Σ h²), so a raw ±1 noise tail of this length reaches the sum
+ * about 60× (+36 dB) hotter than the track and clips on any wet setting.
+ * Each channel is scaled to unit energy instead, which makes the slot
+ * level-neutral — the wet crossfade alone decides how much room is heard.
+ */
 function makeReverbIr(context: AudioContext, seconds = 1.4, decay = 2.6): AudioBuffer {
   const rate = context.sampleRate;
   const length = Math.floor(seconds * rate);
   const buffer = context.createBuffer(2, length, rate);
   for (let channel = 0; channel < 2; channel += 1) {
     const data = buffer.getChannelData(channel);
+    let energy = 0;
     for (let sample = 0; sample < length; sample += 1) {
-      data[sample] = (Math.random() * 2 - 1) * Math.pow(1 - sample / length, decay);
+      const value = (Math.random() * 2 - 1) * Math.pow(1 - sample / length, decay);
+      data[sample] = value;
+      energy += value * value;
     }
+    const normalize = energy > 0 ? 1 / Math.sqrt(energy) : 0;
+    for (let sample = 0; sample < length; sample += 1) data[sample] *= normalize;
   }
   return buffer;
 }
@@ -616,8 +629,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   /**
    * Rewires the spatial section between `spaceIn` and `spaceOut` for the
-   * active mode the EQ feeds the section and the analyser listens after it,
-   * so the wave visualiser reflects every effect.
+   * active mode. The EQ ladder feeds this section and the section hands the
+   * result to the DJ bus; the visualiser tap sits earlier, off the source,
+   * so nothing here changes what the wave reads.
    */
   const applySpatial = useCallback(() => {
     const context = audioContextRef.current;
@@ -897,26 +911,38 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
 
       // Surround: cross-bled Haas widener — each side hears a slightly
-      // delayed ghost of the other, doubling the perceived stage width.
+      // delayed ghost of the *other* channel, so the stage opens outward.
+      // Both sides must be treated identically: feeding the bleed into one
+      // merger input only (the old wiring) left the pair unequal and panned
+      // the track off centre instead of widening it.
       const splitter = context.createChannelSplitter(2);
       const merger = context.createChannelMerger(2);
-      const bleedDelay = context.createDelay(0.05);
-      bleedDelay.delayTime.value = 0.018;
-      const bleedGain = context.createGain();
-      bleedGain.gain.value = 0.55;
+      const ghostToRight = context.createDelay(0.05);
+      const ghostToLeft = context.createDelay(0.05);
+      ghostToRight.delayTime.value = 0.018;
+      ghostToLeft.delayTime.value = 0.018;
+      const bleedRight = context.createGain();
+      const bleedLeft = context.createGain();
+      bleedRight.gain.value = 0.32;
+      bleedLeft.gain.value = 0.32;
 
       input.connect(splitter);
       splitter.connect(merger, 0, 0);
       splitter.connect(merger, 1, 1);
-      splitter.connect(bleedDelay, 0);
-      bleedDelay.connect(bleedGain);
-      bleedGain.connect(merger, 0, 1);
+      splitter.connect(ghostToRight, 0);
+      ghostToRight.connect(bleedRight);
+      bleedRight.connect(merger, 0, 1);
+      splitter.connect(ghostToLeft, 1);
+      ghostToLeft.connect(bleedLeft);
+      bleedLeft.connect(merger, 0, 0);
       merger.connect(output);
       spatialCleanupRef.current = () => {
         try {
           splitter.disconnect();
-          bleedDelay.disconnect();
-          bleedGain.disconnect();
+          ghostToRight.disconnect();
+          ghostToLeft.disconnect();
+          bleedRight.disconnect();
+          bleedLeft.disconnect();
           merger.disconnect();
         } catch {
           // already disconnected
@@ -975,26 +1001,30 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (compAmt <= 0) {
         glide(compRef.current.threshold, 0);
         glide(compRef.current.ratio, 1);
-        compRef.current.knee.value = 30;
+        glide(compRef.current.knee, 30);
       } else {
         glide(compRef.current.threshold, -2 - 36 * compAmt);
         glide(compRef.current.ratio, 1 + 11 * compAmt);
-        compRef.current.knee.value = 8;
-        compRef.current.attack.value = 0.004;
-        compRef.current.release.value = 0.18;
+        glide(compRef.current.knee, 8);
+        glide(compRef.current.attack, 0.004);
+        glide(compRef.current.release, 0.18);
       }
     }
     if (limitRef.current) {
+      /* A limiter is the loudest thing in the rack to switch: jumping
+         instantly to 20:1 at −2 dB with a hard knee makes the detector slam
+         the current passage, which is heard as a click and a level drop.
+         Everything glides, so engaging it is a soft landing instead. */
       if (!limiterOn) {
         glide(limitRef.current.threshold, 0);
         glide(limitRef.current.ratio, 1);
-        limitRef.current.knee.value = 30;
+        glide(limitRef.current.knee, 30);
       } else {
-        limitRef.current.threshold.value = -2;
-        limitRef.current.ratio.value = 20;
-        limitRef.current.knee.value = 0;
-        limitRef.current.attack.value = 0.001;
-        limitRef.current.release.value = 0.07;
+        glide(limitRef.current.threshold, -2, 0.08);
+        glide(limitRef.current.ratio, 20, 0.08);
+        glide(limitRef.current.knee, 0, 0.08);
+        glide(limitRef.current.attack, 0.001);
+        glide(limitRef.current.release, 0.07);
       }
     }
     if (loudLowRef.current) glide(loudLowRef.current.gain, loudnessOn ? 4 : 0);
@@ -1117,8 +1147,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const analyser = context.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
-      // The analyser is a parallel tap off the source, so the wave mirrors
-      // what reaches the ear whether or not any effect is engaged.
+      /* The analyser is a parallel tap straight off the source: it reads the
+         untouched stream, so the wave and the beat keep their shape however
+         the EQ, space mode or volume are set. */
       source.connect(analyser);
 
       // Stereo meter bridge: post-balance left / right RMS pair for the
@@ -1135,10 +1166,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       meterSplit.connect(meterR, 1);
       metersRef.current = [meterL, meterR];
 
-      // Pads fire on this bus so effects never colour the one-tap sounds.
+      // Pads fire on this bus so effects never colour the one-tap sounds —
+      // but it still ends at the master gain, because the volume slider and
+      // mute have to own them like anything else you can hear.
       const padBus = context.createGain();
       padBus.gain.value = 0.9;
-      padBus.connect(context.destination);
+      padBus.connect(masterGain);
       padBusRef.current = padBus;
 
       audioContextRef.current = context;
@@ -1349,9 +1382,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // Beat roll: a short repeating delay — 1/16 at ~90 BPM.
       const rollDelay = context.createDelay(1);
       rollDelay.delayTime.value = 0.166;
+      /* A feedback loop resonates at 1/(1-g): the old 0.92 stood for +22 dB
+         of stacked repeats, so opening this slot alone could redline the
+         master. 0.5 keeps the loop under +6 dB — still four or five audible
+         hits — and the dark filter inside the loop sheds the buildup that
+         would otherwise ring at the top end. */
+      const rollDamp = context.createBiquadFilter();
+      rollDamp.type = "lowpass";
+      rollDamp.frequency.value = 4200;
+      rollDamp.Q.value = 0.7;
       const rollFb = context.createGain();
-      rollFb.gain.value = 0.92;
-      rollDelay.connect(rollFb);
+      rollFb.gain.value = 0.5;
+      rollDelay.connect(rollDamp);
+      rollDamp.connect(rollFb);
       rollFb.connect(rollDelay);
       stages.get("roll")!.input.connect(rollDelay);
       rollDelay.connect(stages.get("roll")!.wet);
@@ -1559,6 +1602,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     metersRef.current = [null, null];
     spaceInRef.current = null;
     spaceOutRef.current = null;
+    /* The pads live on this context too. Left pointing at a closed graph,
+       the next tap would wire oscillators from the fallback context into a
+       bus from a dead one and go silent. */
+    padBusRef.current = null;
     rackReadyRef.current = false;
     rackBuildingRef.current = false;
     void context?.close().catch(() => undefined);
@@ -1598,8 +1645,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     return () => release();
   }, [current]);
 
-  // Apply EQ changes live and re-route: everything back at zero frees the
-  // signal from the filter chain entirely.
+  // Apply EQ changes live. Once the rack exists the head stays wired into the
+  // ladder, so a preset switch only ever moves filter gains — an all-zero
+  // curve is a transparent ladder, not a rewiring.
   useEffect(() => {
     eqGainsRef.current = eqGains;
     filtersRef.current.forEach((filter, filterIndex) => {
@@ -1679,7 +1727,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       audioContextRef.current?.resume().catch(() => {});
       void padContextRef.current?.resume().catch(() => {});
       // Fresh track: the crossfade envelope starts wide open.
-      if (djOutRef.current) djOutRef.current.gain.value = 1;
+      const envelope = djOutRef.current;
+      if (envelope)
+        envelope.gain.setTargetAtTime(1, envelope.context.currentTime, 0.02);
       audio.play().catch(() => {
         // A hand-off while the page is off screen commonly refuses the first
         // try and takes a later one, so this is a retry rather than a failure.
@@ -1903,10 +1953,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   // Mixer head values ride along live — the nodes already sit in the path.
   // The refs keep the freshest value so a graph rebuild restores the ride.
+  // Every write glides: these nodes carry the signal at all times, and a bare
+  // `.value =` is a step, which is what crackles when a knob is dragged.
   useEffect(() => {
     preampDbRef.current = preampDb;
     const node = preampNodeRef.current;
-    if (node) node.gain.value = Math.pow(10, preampDb / 20);
+    if (node)
+      node.gain.setTargetAtTime(
+        Math.pow(10, preampDb / 20),
+        node.context.currentTime,
+        0.04
+      );
     // Its boost is cancelled again at the master, so it drives the chain's
     // texture without ever moving the output level.
     const master = masterGainRef.current;
@@ -1922,15 +1979,21 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     balanceRef.current = balance;
     const node = panNodeRef.current;
-    if (node) node.pan.value = balance;
+    if (node) node.pan.setTargetAtTime(balance, node.context.currentTime, 0.04);
   }, [balance]);
 
   // Low-cut stage: 40 Hz engaged, 4 Hz bypassed — retuning the same node
-  // avoids any rewiring, so toggling is click-free too.
+  // avoids any rewiring, and the glide keeps the corner sweep from thumping
+  // the bass it is cutting.
   useEffect(() => {
     loCutRef.current = loCut;
     const node = loCutNodeRef.current;
-    if (node) node.frequency.value = loCut ? 40 : 4;
+    if (node)
+      node.frequency.setTargetAtTime(
+        loCut ? 40 : 4,
+        node.context.currentTime,
+        0.05
+      );
   }, [loCut]);
 
   // Tempo: pitch-true time stretch on the media element.
@@ -1983,11 +2046,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (djOut) {
       const length = event.currentTarget.duration;
       const fade = crossfadeRef.current;
-      if (length && Number.isFinite(length) && fade > 0 && length - time < fade) {
-        djOut.gain.value = Math.max(0, (length - time) / fade);
-      } else {
-        djOut.gain.value = 1;
-      }
+      const wanted =
+        length && Number.isFinite(length) && fade > 0 && length - time < fade
+          ? Math.max(0, (length - time) / fade)
+          : 1;
+      /* timeupdate only lands about four times a second, so writing the gain
+         straight turned the hand-off into an audible staircase. Gliding
+         between the ticks keeps the curve continuous — and the ride back up
+         at the next track's start arrives as a ramp instead of a step. */
+      djOut.gain.setTargetAtTime(wanted, djOut.context.currentTime, 0.1);
     }
     // The taste recorder is a stable bound method; refs carry the rest.
   }, [recordTaste]);
@@ -2178,7 +2245,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     audio.pause();
     audio.currentTime = 0;
     setProgress(0);
-    if (djOutRef.current) djOutRef.current.gain.value = 1;
+    if (djOutRef.current)
+      djOutRef.current.gain.setTargetAtTime(1, djOutRef.current.context.currentTime, 0.02);
   }, [clearRecovery]);
 
   const endSession = useCallback(() => {
@@ -2347,7 +2415,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (!audio) return;
     audio.currentTime = seconds;
     setProgress(seconds);
-    if (djOutRef.current) djOutRef.current.gain.value = 1;
+    if (djOutRef.current)
+      djOutRef.current.gain.setTargetAtTime(1, djOutRef.current.context.currentTime, 0.02);
   }, []);
 
 
