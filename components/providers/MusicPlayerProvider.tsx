@@ -973,8 +973,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         const stage = stages.get(name);
         if (!stage) return;
         const wet = Math.min(1, Math.max(0, fx[name]));
-        glide(stage.dry.gain, 1 - wet * 0.85);
-        glide(stage.wet.gain, wet);
+        /* Flanger, chorus and phaser *are* the interference between the note
+           and a shifted copy of itself, so their dry leg has to stay up: the
+           one crossfade rule for every slot faded the dry to 0.15, which both
+           flattened the effect and took 8-9 dB off the track at full wet.
+           Those three mix in instead. Echo, reverb, roll and drive replace,
+           where pulling the dry down is what keeps the wet leg intelligible. */
+        const blendIn = name === "flanger" || name === "chorus" || name === "phaser";
+        glide(stage.dry.gain, blendIn ? 1 : 1 - wet * 0.85);
+        glide(stage.wet.gain, blendIn ? wet * 0.7 : wet);
       });
     }
     if (shaperRef.current) shaperRef.current.curve = driveCurve(fx.drive);
