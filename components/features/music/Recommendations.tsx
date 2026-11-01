@@ -208,7 +208,7 @@ function Row({
   const songs = pickSongs(shelf);
   const label = shelf.key === "radio" ? shelf.title : ROW_TITLES[shelf.key];
   return (
-    <section className={first ? "mt-5" : "mt-6"}>
+    <section className={first ? "mt-5" : "mt-2"}>
       <div className="flex items-baseline justify-between gap-3 pb-2.5">
         <h3 className="truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">{label}</h3>
         <span className="flex-none text-[11px] font-medium text-faint-foreground">{songs.length}</span>
@@ -227,7 +227,7 @@ function Row({
               aria-label={`Play ${song.title}, ${reason}`}
               className="group w-28 flex-none text-start"
             >
-              <span className="relative block aspect-square overflow-hidden rounded-lg border border-separator bg-surface-secondary">
+              <span className="relative block aspect-square overflow-hidden rounded-full border border-separator bg-surface-secondary">
                 {song.imageLarge || song.image ? (
                   <Image
                     src={song.imageLarge || song.image}
@@ -243,7 +243,7 @@ function Row({
                   />
                 )}
                 <span className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                <span className="absolute bottom-1.5 start-1.5 grid size-7 place-items-center rounded-full bg-brand/90 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                <span className="absolute top-10 start-10 grid size-7 place-items-center rounded-full bg-brand/90 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
                   <Icon name="play" className="size-3" />
                 </span>
               </span>

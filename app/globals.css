@@ -527,6 +527,55 @@ button[type="button"] {
   }
 }
 
+/* ── Beat wordmark — RGB inside the letterforms, rising on the beat ───── *
+ * Two layers share one box: the faint watermark as it always looked, and a
+ * rainbow clipped to the glyphs laid over it. A mask lifts from the bottom
+ * edge of the text up to `--fill` of its height — the smoothed beat level the
+ * BeatWordmark component writes each frame from the analyser's low band — so
+ * colour floods the letters from the floor up on every kick and drains back
+ * down between them. `--hue` drifts one wheel every 40 seconds, seeded by the
+ * track, and both layers stay faint: the song tints the wordmark, it never
+ * lights it up. */
+.beat-wordmark {
+  display: grid;
+}
+.beat-wordmark > span {
+  grid-area: 1 / 1;
+}
+.beat-wordmark-rgb {
+  background-image: linear-gradient(
+    to top,
+    hsl(calc(var(--hue, 0) * 1deg) 92% 60%),
+    hsl(calc((var(--hue, 0) + 120) * 1deg) 92% 58%),
+    hsl(calc((var(--hue, 0) + 240) * 1deg) 92% 62%),
+    hsl(calc((var(--hue, 0) + 360) * 1deg) 92% 60%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-mask-image: linear-gradient(
+    to top,
+    #000 0%,
+    #000 calc(var(--fill, 0) * 55%),
+    transparent calc(var(--fill, 0) * 100%)
+  );
+  mask-image: linear-gradient(
+    to top,
+    #000 0%,
+    #000 calc(var(--fill, 0) * 55%),
+    transparent calc(var(--fill, 0) * 100%)
+  );
+  opacity: calc(0.08 + var(--fill, 0) * 0.24);
+  will-change: opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .beat-wordmark-rgb {
+    -webkit-mask-image: linear-gradient(to top, #000 0%, transparent 55%);
+    mask-image: linear-gradient(to top, #000 0%, transparent 55%);
+    opacity: 0.12;
+  }
+}
+
 /* ── Voice globe — dotted listening sphere with sound rings ──────────── *
  * A ball of fine dots that rolls slowly either way, wrapped in meridian
  * glass rings, with ripple waves sweeping outward to say "we're listening".

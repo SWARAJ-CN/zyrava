@@ -75,7 +75,7 @@ export function RegionCarousel({ covers, active, nowPlaying, onPlay, onSelect }:
       onMouseLeave={() => setPaused(false)}
       onFocusCapture={() => setPaused(true)}
       onBlurCapture={() => setPaused(false)}
-      className="relative overflow-hidden rounded-xl border border-separator shadow-pop"
+      className="relative overflow-hidden rounded-xl border border-separator shadow-pop "
     >
       <div
         className="flex transition-transform duration-700 motion-safe:ease-[cubic-bezier(0.23,1,0.32,1)]"

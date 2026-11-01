@@ -9,7 +9,8 @@ import { EmptyState, Notice, Skeleton, Spinner } from "@/components/ui/Feedback"
 import { Icon } from "@/components/ui/icons";
 import { RegionCarousel } from "@/components/features/music/RegionCarousel";
 import { NowPlayingPanel } from "@/components/features/music/NowPlayingPanel";
-import { BeatGlow, songHueSeed } from "@/components/features/music/BeatGlow";
+import { songHueSeed } from "@/components/features/music/BeatGlow";
+import { BeatWordmark } from "@/components/features/music/BeatWordmark";
 import { SearchWithSuggestions } from "@/components/features/music/SearchWithSuggestions";
 import { PlaylistsView } from "@/components/features/music/PlaylistsView";
 import { LikedView } from "@/components/features/music/LikedView";
@@ -707,17 +708,22 @@ export default function MusicPage() {
       {/* Spotify-style side preview — fixed, wide screens only. */}
       <NowPlayingPanel />
 
-      {/* Oversized wordmark — a barely-there watermark behind the header,
-          absolutely placed so it owns no layout space. */}
+      {/* Oversized wordmark — the song's RGB inside the letters, flooding up
+          from the floor of the text on every beat. Absolutely placed so it
+          owns no layout space behind the header. */}
       <div className="relative">
         <div
           aria-hidden
           className="pointer-events-none absolute -top-5 end-0 flex select-none overflow-hidden"
         >
-          <BeatGlow getAnalyser={getAnalyser} playing={playing} hueSeed={songHueSeed(activeId)} />
-          <span className="relative z-[1] text-[clamp(5rem,15vw,13rem)] font-black leading-none tracking-tighter text-foreground/[0.045]">
+          <BeatWordmark
+            getAnalyser={getAnalyser}
+            playing={playing}
+            hueSeed={songHueSeed(activeId)}
+            className="text-[clamp(5rem,15vw,13rem)] font-black leading-none tracking-tighter"
+          >
             ZYRAVA
-          </span>
+          </BeatWordmark>
         </div>
         <PageHeader
           title="ZYRAVA"
@@ -938,7 +944,7 @@ export default function MusicPage() {
       {/* One scrolling rail of language cards — they never stack into a block. */}
       <div
         id="region-library"
-        className="scrollbar-none mt-8 flex snap-x gap-3 overflow-x-auto pb-2 scroll-mt-24 sm:gap-4"
+        className="scrollbar-none mt-8 p-4 flex gap-3 overflow-x-auto pb-2 scroll-mt-24 sm:gap-4"
       >
         {REGIONS.map((candidate) => {
           const active = candidate.label === term;
