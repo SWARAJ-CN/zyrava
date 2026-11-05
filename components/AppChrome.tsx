@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { SideBar } from "@/components/features/music/SideBar";
 import { MixerConsole } from "@/components/features/music/MixerConsole";
+import { InstallSheet } from "@/components/features/music/InstallSheet";
 import { ChatPanel } from "@/components/features/community/ChatPanel";
 import { StickyPlayerBar } from "@/components/features/music/StickyPlayerBar";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -25,6 +26,9 @@ export function AppChrome() {
     <>
       <SideBar />
       {isGuest ? null : <MixerConsole />}
+      {/* The dock's download button leads here on iOS, where there is no prompt
+          for a page to raise — and a guest can still add the app. */}
+      <InstallSheet />
       <ChatPanel />
       <StickyPlayerBar />
     </>

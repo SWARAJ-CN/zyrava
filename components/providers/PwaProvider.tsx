@@ -16,20 +16,31 @@ type InstallPromptEvent = Event & {
 };
 
 interface PwaApi {
-  /** Ready to install; the browser holds `beforeinstallprompt` back for us. */
+  /** Ready to install: the browser's own prompt, or the iOS walk-through. */
   canInstall: boolean;
+  /** iPhone/iPad Safari, where the only way in is Add to Home Screen. */
+  manualInstall: boolean;
+  /** True when `install()` walks the reader to the sheet instead of prompting. */
+  installViaSheet: boolean;
   /** Running as its own app on the device rather than as a tab in a browser. */
   installed: boolean;
   /** Install touched, waiting on the device to confirm it. */
   installing: boolean;
   install: () => Promise<void>;
+  /** The step-by-step sheet Safari's menu leads to. */
+  sheetOpen: boolean;
+  closeSheet: () => void;
 }
 
 const PwaContext = createContext<PwaApi>({
   canInstall: false,
+  manualInstall: false,
+  installViaSheet: false,
   installed: false,
   installing: false,
   install: async () => {},
+  sheetOpen: false,
+  closeSheet: () => {},
 });
 
 export function usePwa(): PwaApi {
@@ -47,6 +58,23 @@ function readsAsApp(): boolean {
     window.matchMedia("(display-mode: standalone)").matches ||
     window.matchMedia("(display-mode: minimal-ui)").matches
   );
+}
+
+/**
+ * iPhone and iPad get no `beforeinstallprompt` and no install call at all: the
+ * app is added through Safari's own Share menu, and nothing on the page can
+ * open that menu for them. Other browsers on iOS are all the same WebKit engine
+ * wearing a different badge, and none of them surface that menu to a page, so
+ * the walk-through is offered in Safari only.
+ */
+function readsAsIOSSafari(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  if (/CriOS|FxiOS|EdgiOS|OPiOS|MBFirefox/.test(ua)) return false;
+  if (/iPhone|iPad|iPod/.test(ua)) return true;
+  /* iPadOS 13 onwards asks for the desktop site by default, which leaves the
+     platform reading as a Mac. Only the touch points give it away. */
+  return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
 }
 
 /**
@@ -85,8 +113,21 @@ function readInstalled(): boolean {
  */
 export function PwaProvider({ children }: { children: ReactNode }) {
   const [prompt, setPrompt] = useState<InstallPromptEvent | null>(null);
+  const [manualInstall, setManualInstall] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [installed, setInstalled] = useState(readInstalled);
   const [installing, setInstalling] = useState(false);
+
+  useEffect(() => {
+    /*
+     * Asked for after the first paint: the server cannot know it is answering
+     * an iPhone, so a synchronous answer would hydrate against the wrong HTML.
+     */
+    const frame = requestAnimationFrame(() => {
+      if (!readsAsApp() && readsAsIOSSafari()) setManualInstall(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
@@ -114,6 +155,8 @@ export function PwaProvider({ children }: { children: ReactNode }) {
     const onInstalled = () => {
       setPrompt(null);
       setInstalling(false);
+      setSheetOpen(false);
+      setManualInstall(false);
       markInstalled();
       setInstalled(true);
     };
@@ -131,17 +174,33 @@ export function PwaProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const install = useCallback(async () => {
-    if (!prompt) return;
-    setInstalling(true);
-    const choice = await prompt.prompt();
-    // Turning the dialog down ends the flow; accepting it runs until the
-    // device reports the app is really there.
-    if (choice?.outcome !== "accepted") setInstalling(false);
-  }, [prompt]);
+    if (prompt) {
+      setInstalling(true);
+      const choice = await prompt.prompt();
+      // Turning the dialog down ends the flow; accepting it runs until the
+      // device reports the app is really there.
+      if (choice?.outcome !== "accepted") setInstalling(false);
+      return;
+    }
+    /* Nothing to fire on iOS: the sheet is the flow, and the device finishes
+       it from Safari's menu. Nothing is "installing" until it says otherwise. */
+    if (manualInstall) setSheetOpen(true);
+  }, [manualInstall, prompt]);
+
+  const closeSheet = useCallback(() => setSheetOpen(false), []);
 
   const value = useMemo<PwaApi>(
-    () => ({ canInstall: Boolean(prompt), installed, installing, install }),
-    [prompt, installed, installing, install]
+    () => ({
+      canInstall: Boolean(prompt) || manualInstall,
+      manualInstall,
+      installViaSheet: manualInstall && !prompt,
+      installed,
+      installing,
+      install,
+      sheetOpen,
+      closeSheet,
+    }),
+    [install, installed, installing, manualInstall, prompt, sheetOpen, closeSheet]
   );
 
   return <PwaContext.Provider value={value}>{children}</PwaContext.Provider>;

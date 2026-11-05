@@ -30,7 +30,7 @@ const PERKS = [
  * it is done, so the bar sweeps rather than counts.
  */
 export function InstallModal() {
-  const { canInstall, installed, installing, install } = usePwa();
+  const { canInstall, installViaSheet, installed, installing, install } = usePwa();
   const { isGuest } = useGuestLock();
   const [open, setOpen] = useState(false);
 
@@ -67,6 +67,7 @@ export function InstallModal() {
         open={open && !installed}
         onClose={close}
         canInstall={canInstall}
+        installViaSheet={installViaSheet}
         installing={installing}
         install={install}
       />
@@ -79,11 +80,29 @@ interface InstallOfferProps {
   open: boolean;
   onClose: () => void;
   canInstall: boolean;
+  installViaSheet: boolean;
   installing: boolean;
   install: () => Promise<void>;
 }
 
-function InstallOffer({ open, onClose, canInstall, installing, install }: InstallOfferProps) {
+function InstallOffer({
+  open,
+  onClose,
+  canInstall,
+  installViaSheet,
+  installing,
+  install,
+}: InstallOfferProps) {
+  /*
+   * On iOS the install happens outside the page, in Safari's own menu, so the
+   * offer steps aside rather than sitting under the sheet it just opened. A
+   * browser that can prompt keeps the offer up to show the sweep.
+   */
+  const take = () => {
+    if (installViaSheet) onClose();
+    void install();
+  };
+
   return (
     <Modal
       open={open}
@@ -97,11 +116,7 @@ function InstallOffer({ open, onClose, canInstall, installing, install }: Instal
             Ignore
           </Button>
           {canInstall ? (
-            <Button
-              variant="primary"
-              loading={installing}
-              onClick={() => void install()}
-            >
+            <Button variant="primary" loading={installing} onClick={take}>
               {!installing ? <Icon name="download" className="size-4" /> : null}
               {installing ? "Installing" : "Download"}
             </Button>

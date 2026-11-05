@@ -326,6 +326,13 @@ export const ICONS = {
       <polygon points="22 2 15 22 11 13 2 9 22 2" />
     </>
   ),
+  share: (
+    <>
+      <path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+      <polyline points="8 8 12 4 16 8" />
+      <line x1="12" y1="4" x2="12" y2="15" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;
