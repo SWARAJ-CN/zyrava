@@ -112,7 +112,18 @@ function pickTier(tiers: QualityTier[], preferred: string[]): string {
 }
 
 function asTierList(value: unknown): QualityTier[] {
-  return Array.isArray(value) ? (value as QualityTier[]) : [];
+  if (Array.isArray(value)) return value as QualityTier[];
+  // Some payloads send one `{ quality, url }` object instead of an array, and
+  // the direct API sends a plain URL string. Normalising all three shapes here
+  // means every caller (songs, playlists, artwork) reads the same field.
+  if (value && typeof value === "object") return [value as QualityTier];
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
+}
+
+/** The best usable artwork URL from a string, object or quality array. */
+function imageUrl(value: unknown, preferred = ["500x500", "150x150", "50x50"]): string {
+  return pickTier(asTierList(value), preferred) || clean(value);
 }
 
 /** Artist fields arrive as a plain string, an array of objects, or nested. */
@@ -143,7 +154,6 @@ function toSong(raw: Record<string, unknown>): Song | null {
   const id = clean(raw.id) || clean(raw.song_id);
   if (!id) return null;
 
-  const images = asTierList(raw.image ?? raw.song_image);
   const media = asTierList(raw.downloadUrl ?? raw.download_links)
     .map((tier) => {
       // The flat v1 API uses bare strings in download_links.
@@ -179,8 +189,10 @@ function toSong(raw: Record<string, unknown>): Song | null {
     year: clean(raw.year) || "",
     language: clean(raw.language) || clean(raw.song_language),
     duration,
-    image: pickTier(images, ["500x500", "150x150", "50x50"]) || clean(raw.song_image),
-    imageLarge: pickTier(images, ["500x500", "150x150"]) || clean(raw.song_image),
+    image: imageUrl(raw.image ?? raw.song_image) || clean(raw.song_image),
+    imageLarge:
+      imageUrl(raw.image ?? raw.song_image, ["500x500", "150x150"]) ||
+      clean(raw.song_image),
     streamUrl,
     pageUrl: clean(raw.url) || clean(raw.link) || clean(raw.song_link),
   };
@@ -217,11 +229,10 @@ function toPlaylistSummary(raw: Record<string, unknown>): PlaylistSummary | null
   const title = clean(raw.name) || clean(raw.title);
   if (!id || !title) return null;
 
-  const images = asTierList(raw.image);
   return {
     id,
     title,
-    image: pickTier(images, ["500x500", "150x150", "50x50"]) || "",
+    image: imageUrl(raw.image),
     songCount: Number(raw.songCount ?? raw.song_count ?? 0) || 0,
     language: clean(raw.language),
     pageUrl: clean(raw.url),
@@ -323,9 +334,18 @@ function toDirectSong(raw: Record<string, unknown>): Song | null {
   );
   if (!/^https?:\/\//.test(streamUrl)) return null;
 
-  // Small covers ship at 150x150; the 500x500 copy sits on the same CDN path.
-  const image = clean(raw.image);
-  const imageLarge = image.replace(/150x150/, "500x500");
+  // The web API sends one 150x150 URL; mirrors send a quality array. Keep the
+  // 500x500 copy when the payload offers it, otherwise derive it from the CDN
+  // path as before.
+  const artworkSource = raw.image ?? raw.song_image;
+  const image = imageUrl(artworkSource);
+  // A quality array can hand us the 500x500 entry directly; a plain string only
+  // carries the 150x150 URL, so derive the larger copy from its CDN path.
+  const fromTiers =
+    Array.isArray(artworkSource) || (artworkSource && typeof artworkSource === "object")
+      ? imageUrl(artworkSource, ["500x500"])
+      : "";
+  const imageLarge = fromTiers || image.replace(/150x150/, "500x500");
 
   const artist =
     artistNames((more.artistMap as { primary_artists?: unknown } | undefined)?.primary_artists) ||
@@ -383,7 +403,7 @@ async function searchPlaylistsDirect(query: string, limit: number): Promise<Play
       return {
         id,
         title,
-        image: artwork(clean(raw.image)),
+        image: artwork(imageUrl(raw.image)),
         songCount: count,
         language: clean(more.language),
         pageUrl: clean(raw.perma_url),
@@ -425,7 +445,7 @@ async function getPlaylistDetailDirect(id: string): Promise<PlaylistDetail | nul
     id,
     title: decodeEntities(clean(payload.title)) || "Playlist",
     // Details already come back at full size, so no CDN rewrite here either.
-    image: artwork(clean(payload.image)),
+    image: artwork(imageUrl(payload.image)),
     songCount: Number.parseInt(String(payload.list_count ?? ""), 10) || songs.length,
     language: clean(payload.language),
     pageUrl: clean(payload.perma_url),

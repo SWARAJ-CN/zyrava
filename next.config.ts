@@ -8,10 +8,20 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   compress: true,
   images: {
-    // Catalogue artwork comes from the streaming CDNs the app talks to: the
-    // `*.saavncdn.com` tile hosts, `*.scdn.co` and the source site's own
-    // fallback images. A `**` hostname here would make the optimizer fetch
-    // any URL it is given.
+    /*
+     * Artwork is served straight from the music CDNs.
+     *
+     * Routing covers through /_next/image put every tile behind Vercel's Image
+     * Optimization quota; when that quota ran out the optimizer answered
+     * 402 Payment Required and the affected covers rendered as broken images
+     * even though the CDN file itself was healthy. The catalogue already hands
+     * us pre-sized 150x150 / 500x500 JPEGs, so there is nothing to optimise —
+     * letting the browser fetch them directly keeps artwork loading.
+     */
+    unoptimized: true,
+    // Kept for documentation / future re-enablement of the optimizer: catalogue
+    // artwork comes from the `*.saavncdn.com` tile hosts, `*.scdn.co` and the
+    // source site's own fallback images.
     remotePatterns: [
       { protocol: "https", hostname: "*.saavncdn.com" },
       { protocol: "https", hostname: "*.scdn.co" },
