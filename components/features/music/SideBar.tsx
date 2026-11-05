@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useGuestLock } from "@/components/providers/GuestLockProvider";
 import { useLibrary } from "@/components/providers/LibraryProvider";
+import { useCommunity } from "@/components/providers/CommunityProvider";
 import { usePwa } from "@/components/providers/PwaProvider";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import {
@@ -31,15 +32,22 @@ function formatSeconds(value: number): string {
 
 type DockTab = "browse" | "library" | "dashboard" | "mixer";
 
+/**
+ * `chat` is not a shelf of the dock — it is the door to the community room,
+ * which draws over the page like the console does, so it never lands in `tab`.
+ */
+type DockEntry = DockTab | "chat";
+
 const TABS: Array<{
-  value: DockTab;
+  value: DockEntry;
   label: string;
-  icon: "music" | "heart" | "gauge" | "sliders";
+  icon: "music" | "heart" | "gauge" | "sliders" | "message";
 }> = [
   { value: "browse", label: "Browse", icon: "music" },
   { value: "library", label: "Library", icon: "heart" },
   { value: "dashboard", label: "Audio desk", icon: "gauge" },
   { value: "mixer", label: "Mixer", icon: "sliders" },
+  { value: "chat", label: "Community", icon: "message" },
 ];
 
 const BROWSE_LINKS: Array<{ label: string; id: string; icon: "search" | "globe" | "list" }> = [
@@ -104,6 +112,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
     addToPlaylist,
     deletePlaylist,
   } = useLibrary();
+  const { chatOpen, badge: chatBadge, openChat } = useCommunity();
   const {
     playing,
     queue,
@@ -237,7 +246,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
         )}
       >
         {TABS.map((entry) => {
-          const active = tab === entry.value;
+          const active = entry.value === "chat" ? chatOpen : tab === entry.value;
           return (
             <button
               key={entry.value}
@@ -246,6 +255,14 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
               aria-label={wide ? undefined : entry.label}
               aria-current={active || undefined}
               onClick={() => {
+                /* The community room is an overlay, not another shelf — it never
+                   takes the dock's own tab state with it. */
+                if (entry.value === "chat") {
+                  if (!requireAuth("community")) return;
+                  openChat();
+                  if (mobile) setMobileNavOpen(false);
+                  return;
+                }
                 /* Browsing the page is free; the shelves, the readings and the
                    console behind them are what an account is for. */
                 const reason = entry.value === "mixer" ? "mixer" : "tab";
@@ -278,10 +295,19 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
               {wide ? (
                 <>
                   <span className="min-w-0 flex-1 truncate text-start">{entry.label}</span>
-                  {active ? (
+                  {entry.value === "chat" && chatBadge ? (
+                    <span className="grid h-5 min-w-5 flex-none place-items-center rounded-full bg-accent px-1 text-[10px] font-bold text-accent-foreground tabular-nums">
+                      {chatBadge > 9 ? "9+" : chatBadge}
+                    </span>
+                  ) : active ? (
                     <span aria-hidden className="size-1.5 flex-none rounded-full bg-accent" />
                   ) : null}
                 </>
+              ) : entry.value === "chat" && chatBadge ? (
+                <span
+                  aria-hidden
+                  className="absolute end-1.5 top-1.5 size-2 rounded-full bg-accent"
+                />
               ) : null}
             </button>
           );

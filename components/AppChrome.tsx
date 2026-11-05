@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { SideBar } from "@/components/features/music/SideBar";
 import { MixerConsole } from "@/components/features/music/MixerConsole";
+import { ChatPanel } from "@/components/features/community/ChatPanel";
 import { StickyPlayerBar } from "@/components/features/music/StickyPlayerBar";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useGuestLock } from "@/components/providers/GuestLockProvider";
@@ -24,6 +25,7 @@ export function AppChrome() {
     <>
       <SideBar />
       {isGuest ? null : <MixerConsole />}
+      <ChatPanel />
       <StickyPlayerBar />
     </>
   );

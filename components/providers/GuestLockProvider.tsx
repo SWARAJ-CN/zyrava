@@ -33,6 +33,7 @@ export type GuestLockReason =
   | "like"
   | "playlist"
   | "mixer"
+  | "community"
   | "browse";
 
 const COPY: Record<GuestLockReason, { title: string; description: string }> = {
@@ -60,6 +61,10 @@ const COPY: Record<GuestLockReason, { title: string; description: string }> = {
     title: "The console is members' only",
     description: "Equalizer, spatial audio and the mixer unlock with an account.",
   },
+  community: {
+    title: "The community is members' only",
+    description: "Chat is how listeners meet here, so every thread runs on a real account.",
+  },
   browse: {
     title: "Sign in to keep exploring",
     description: "The first ten songs are on the house — everything past them is for members.",
@@ -70,6 +75,7 @@ const PERKS = [
   "Every page of the catalogue, and a queue that keeps walking into more.",
   "Liked songs and playlists, waiting on any device you sign in from.",
   "The mixer: equalizer, spatial audio, crossfade and the DJ pads.",
+  "The community: text threads with other listeners, with online status and typing.",
 ];
 
 interface GuestLockValue {
