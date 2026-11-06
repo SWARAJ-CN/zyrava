@@ -1,10 +1,26 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 
 const PUBLIC_ROUTES = new Set(["/login", "/register"]);
+
+/* Loaded only once the wait is long enough to be a sleeping server; a warm boot
+   never asks for the player, its WASM or the animation file. */
+const WakeAnimation = dynamic(
+  () => import("@/components/auth/WakeAnimation").then((module) => module.WakeAnimation),
+  { ssr: false, loading: () => null }
+);
+
+/*
+ * A hosted instance that has been idle takes a while to answer the first
+ * request. That wait is what this gate is standing through, so after a beat the
+ * ordinary splash gives way to the waking one — long enough that a warm server
+ * never flashes it, short enough that a cold one explains itself.
+ */
+const WAKE_AFTER = 2200;
 
 const SPLASH_GLYPHS: ReactNode[] = [
   <>
@@ -37,6 +53,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { status, expired } = useAuth();
+  const [waking, setWaking] = useState(false);
   const isPublic = PUBLIC_ROUTES.has(pathname);
   /* A stranger is a guest with the trial still running. Someone this device
      has held an account for is a member whose session went stale, and gets the
@@ -48,6 +65,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const next = pathname && pathname !== "/" ? `?next=${encodeURIComponent(pathname)}` : "";
     router.replace(`/login${next}`);
   }, [isPublic, status, expired, pathname, router]);
+
+  /*
+   * A cold instance gives a browser no signal but its own slowness, so the
+   * delay is the reading of it. Anything that answers inside this window never
+   * claims to be waking.
+   */
+  useEffect(() => {
+    if (status !== "loading") return;
+    const timer = window.setTimeout(() => setWaking(true), WAKE_AFTER);
+    return () => window.clearTimeout(timer);
+  }, [status]);
 
   if (isPublic) return <>{children}</>;
   if (status === "authenticated" || isGuest) return <>{children}</>;
@@ -89,6 +117,30 @@ export function AuthGate({ children }: { children: ReactNode }) {
         }}
       />
 
+      {waking && status === "loading" ? (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          className="relative flex w-full max-w-[19rem] flex-col items-center gap-7 text-center"
+        >
+          <WakeAnimation />
+
+          <div className="space-y-1.5">
+            <p className="text-sm font-semibold uppercase tracking-[0.32em] text-foreground">
+              ZYRAVA
+            </p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-brand">
+              Waking up the server
+            </p>
+          </div>
+
+          <p className="text-[11px] leading-relaxed text-faint-foreground">
+            This instance had gone quiet. The first answer takes a few seconds — the app itself is
+            already on your screen.
+          </p>
+        </div>
+      ) : (
       <div
         role="status"
         aria-live="polite"
@@ -148,10 +200,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
             <span className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-accent motion-safe:animate-[splash-sweep_1.4s_ease-in-out_infinite]" />
           </span>
           <p className="text-[11px] tracking-wide text-faint-foreground">
-            Hey it's you Hmmm....?
+            Hey it&apos;s you Hmmm....?
           </p>
         </div>
       </div>
+      )}
     </div>
   );
 }

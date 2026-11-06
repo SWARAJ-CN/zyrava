@@ -53,8 +53,13 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   // Build assets are content-hashed, so a cached copy can never be the wrong
-  // one. The icons keep their names, which is what the version above is for.
-  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
+  // one. The icons and the wake animation keep their names, which is what the
+  // version above is for.
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/icons/") ||
+    url.pathname.startsWith("/animations/")
+  ) {
     event.respondWith(
       caches.open(ASSETS).then(async (cache) => {
         const hit = await cache.match(request);
