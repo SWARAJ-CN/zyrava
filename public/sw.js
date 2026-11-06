@@ -5,9 +5,13 @@
  * HTML document for a top-level navigation. Everything else — the API, the
  * artwork CDNs, RSC payloads — goes straight to the network, so a stale cache
  * can never serve an out-of-date page shell or someone else's audio.
+ *
+ * v5: the icon's black frame was screened out onto the app's own background,
+ * so the old copies have to go the same way. /icons/* keeps its file names,
+ * which is what the version above is for.
  */
-const SHELL = "zyrava-shell-v3";
-const ASSETS = "zyrava-assets-v3";
+const SHELL = "zyrava-shell-v5";
+const ASSETS = "zyrava-assets-v5";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -48,7 +52,8 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Hashed per build, so a cached copy can never be the wrong one.
+  // Build assets are content-hashed, so a cached copy can never be the wrong
+  // one. The icons keep their names, which is what the version above is for.
   if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
     event.respondWith(
       caches.open(ASSETS).then(async (cache) => {

@@ -30,6 +30,24 @@ const inter = Inter({
   display: "swap",
 });
 
+/* Device pixels, the CSS size that media query matches them, and the scale. */
+const APPLE_SPLASH: Array<[readonly [number, number], readonly [number, number], number]> = [
+  [[1290, 2796], [430, 932], 3], // 14 Pro Max · 15 Pro Max · 16 Plus
+  [[1284, 2778], [428, 926], 3], // 12 Pro Max · 13 Pro Max · 14 Plus
+  [[1179, 2556], [393, 852], 3], // 14 Pro · 15 Pro · 16 · 16 Pro
+  [[1170, 2532], [390, 844], 3], // 12 · 13 · 14
+  [[1125, 2436], [375, 812], 3], // X · XS · 11 Pro
+  [[1080, 2340], [360, 780], 3], // 12 mini · 13 mini
+  [[1242, 2688], [414, 896], 3], // XS Max · 11 Pro Max
+  [[828, 1792], [414, 896], 2], // XR · 11
+  [[1242, 2208], [414, 736], 3], // 8 Plus
+  [[750, 1334], [375, 667], 2], // SE 2 · SE 3 · 8
+  [[2048, 2732], [1024, 1366], 2], // iPad Pro 12.9
+  [[1668, 2388], [834, 1194], 2], // iPad Pro 11 · iPad Air
+  [[1620, 2160], [810, 1080], 2], // iPad 10
+  [[1536, 2048], [768, 1024], 2], // iPad mini · older Airs
+];
+
 export const metadata: Metadata = {
   title: {
     default: "ZYRAVA",
@@ -38,9 +56,9 @@ export const metadata: Metadata = {
   description: "Browse music by region — pick a language, search anything, and listen with your own equalizer.",
   applicationName: "ZYRAVA",
   icons: {
-    // app/icon.svg is served, but the manual <head> below stops Next from
+    // app/icon.png is served, but the manual <head> below stops Next from
     // linking it on its own, so the href is declared here.
-    icon: "/icon.svg",
+    icon: "/icon.png",
     apple: "/icons/apple-icon.png",
   },
   // iOS has no beforeinstallprompt: this is what turns Add to Home Screen into
@@ -49,6 +67,20 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "ZYRAVA",
+    /*
+     * On an installed app iOS draws the launch screen itself, out of one
+     * full-size image per device. Linked to nothing, a cold start is a blank
+     * page until the first paint arrives — which is what made the splash look
+     * broken on a phone. Portrait covers the devices people actually install
+     * on; an unmatched screen falls back to the background colour rather than
+     * to a stretched picture.
+     */
+    startupImage: APPLE_SPLASH.map(([pixels, css, scale]) => ({
+      url: `/splash/startup-${pixels[0]}x${pixels[1]}.png`,
+      media:
+        `(device-width: ${css[0]}px) and (device-height: ${css[1]}px) ` +
+        `and (-webkit-device-pixel-ratio: ${scale}) and (orientation: portrait)`,
+    })),
   },
 };
 
