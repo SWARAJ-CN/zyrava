@@ -17,6 +17,7 @@ import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import { useTaste } from "@/components/providers/TasteProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import { cn } from "@/lib/cn";
+import { onCommunityEvent } from "@/lib/socket";
 import {
   createServerPlaylist,
   deleteServerPlaylist,
@@ -195,6 +196,37 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       /* storage can be unavailable in private mode */
     }
   }, [state, user]);
+
+  /*
+   * Real-time sync across this account's live tabs. The server pushes
+   * `library:changed` after every write (see the library controller), so a
+   * second window — or a phone that shares the account — refreshes itself
+   * instead of waiting for a reload. Debounced because one bulk upload fires
+   * the event once per chunk.
+   */
+  useEffect(() => {
+    const userId = user?.id ?? null;
+    if (!userId) return;
+    let timer = 0;
+    let alive = true;
+    const off = onCommunityEvent("library:changed", () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void fetchLibrary()
+          .then((server) => {
+            if (alive && server && loadedFor.current === userId) {
+              setState(fromServer(server));
+            }
+          })
+          .catch(() => undefined);
+      }, 400);
+    });
+    return () => {
+      alive = false;
+      off();
+      window.clearTimeout(timer);
+    };
+  }, [user?.id]);
 
   /**
    * Changes the library at once, then writes it to the account; a write that

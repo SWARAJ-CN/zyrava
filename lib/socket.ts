@@ -27,7 +27,9 @@ export type CommunityEvent =
   | "request:resolved"
   | "presence:init"
   | "presence:update"
-  | "typing";
+  | "typing"
+  | "library:changed"
+  | "history:changed";
 
 type Handler = (payload: never) => void;
 
