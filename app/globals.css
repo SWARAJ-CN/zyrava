@@ -1083,3 +1083,18 @@ button[type="button"] {
 .payment-history-empty a { color:var(--link); }
 .payment-history-pagination { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:1rem 2rem; font-size:0.75rem; }
 @media(max-width:767px){.payment-history-toolbar,.payment-history-note,.payment-history-pagination {padding-inline:1rem}.payment-history-list{padding:1rem}.payment-history-card{padding:1rem}.payment-history-card-top{flex-wrap:wrap}.payment-history-amount{align-items:start}.payment-history-note{font-size:0.7rem}}
+
+.customize-template-picker { margin:1.5rem 2rem 0; }
+.customize-template-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0.75rem; }
+.customize-template-tabs button { padding:1.1rem 1.2rem; text-align:left; border:1px solid var(--separator); border-radius:1rem; background:var(--surface); transition:background .18s ease,border-color .18s ease; }
+.customize-template-tabs button[aria-selected="true"] { background:var(--accent-soft); border-color:var(--accent); }
+.customize-template-tabs strong { display:block; font-size:0.95rem; color:var(--foreground); }
+.customize-template-tabs span { display:block; margin-top:0.3rem; font-size:0.75rem; color:var(--muted); }
+.customize-template-tabs button:focus-visible,.customize-motion-sets button:focus-visible { outline:2px solid var(--focus); outline-offset:3px; }
+.customize-template-tabs button:disabled { opacity:.6; cursor:wait; }
+.customize-motion-sets { display:flex; flex-wrap:wrap; gap:0.5rem; margin-block:1rem; }
+.customize-motion-sets button { padding:0.5rem 0.8rem; border-radius:999px; background:var(--surface-secondary); color:var(--muted); border:1px solid var(--separator); font-size:0.75rem; }
+.customize-motion-sets button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent-soft-foreground); border-color:var(--accent); }
+.customization-home-wish { max-width:42rem; margin-top:.5rem; font-size:.9rem; line-height:1.65; color:var(--foreground); overflow-wrap:anywhere; }
+.customize-preview-header p { overflow-wrap:anywhere; }
+@media(max-width:767px) { .customize-template-picker { margin-inline:1rem; }.customize-template-tabs button{padding:.85rem}.customize-template-tabs span{font-size:.7rem} }

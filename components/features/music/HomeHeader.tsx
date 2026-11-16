@@ -34,7 +34,7 @@ export function HomeHeader({ personal, search, getAnalyser, playing, hueSeed, on
       <div className="home-header-bottom">
         <div className="home-header-identity">
           <CustomizationAnimation id={active.config.headerAnimation} className="home-header-animation"/>
-          <div className="min-w-0"><h1 className="break-words text-lg font-semibold text-foreground">{active.config.title}</h1><p className="mt-1 break-words text-xs text-muted">Created by {active.creator.name||"ZYRAVA listener"}</p>{active.creator.email?<p className="mt-1 break-words text-xs text-muted">{active.creator.email}</p>:null}</div>
+          <div className="min-w-0"><h1 className="break-words text-lg font-semibold text-foreground">{active.config.title}</h1>{active.config.wishMessage ? <p className="customization-home-wish">{active.config.wishMessage}</p> : null}<p className="mt-1 break-words text-xs text-muted">Created by {active.creator.name||"ZYRAVA listener"}</p>{active.creator.email?<p className="mt-1 break-words text-xs text-muted">{active.creator.email}</p>:null}</div>
         </div>
         {menu}
         <div className="home-header-search">{search}</div>

@@ -19,9 +19,47 @@ export const CUSTOM_ANIMATIONS = [
     label: "Couples 4",
     src: "/animations/custom-couples-4-5e7e9938.lottie",
   },
+  {
+    id: "moments-1",
+    label: "Moonlight",
+    src: "/animations/custom-moments-1-006a3210.lottie",
+  },
+  {
+    id: "moments-2",
+    label: "Dancing dog",
+    src: "/animations/custom-moments-2-77e997ed.lottie",
+  },
+  {
+    id: "moments-3",
+    label: "Sound waves",
+    src: "/animations/custom-moments-3-4f4fea5e.lottie",
+  },
+  {
+    id: "moments-4",
+    label: "Dance moves",
+    src: "/animations/custom-moments-4-6418843b.lottie",
+  },
+  {
+    id: "moments-5",
+    label: "DJ party",
+    src: "/animations/custom-moments-5-359a8420.lottie",
+  },
+  {
+    id: "moments-6",
+    label: "Space walk",
+    src: "/animations/custom-moments-6-61d11da8.lottie",
+  },
+  {
+    id: "moments-7",
+    label: "Happy birthday",
+    src: "/animations/custom-moments-7-baa76dfa.lottie",
+  },
 ] as const;
 export type AnimationId = "none" | (typeof CUSTOM_ANIMATIONS)[number]["id"];
+export type CustomizationTemplate = "partner" | "birthday";
 export interface CustomizationConfig {
+  template?: CustomizationTemplate;
+  wishMessage?: string;
   title: string;
   accent: string;
   background: string;
@@ -62,6 +100,8 @@ export interface CustomizationState {
   outgoing: CustomizationDesign[];
 }
 export const DEFAULT_CUSTOMIZATION: CustomizationConfig = {
+  template: "partner",
+  wishMessage: "",
   title: "Made for you",
   accent: "#e76caa",
   background: "#20141c",
@@ -73,6 +113,53 @@ export const DEFAULT_CUSTOMIZATION: CustomizationConfig = {
   durationMinutes: null,
   loadingMessage: "Your favourite songs are getting ready.",
 };
+export const BIRTHDAY_CUSTOMIZATION: CustomizationConfig = {
+  ...DEFAULT_CUSTOMIZATION,
+  template: "birthday",
+  title: "Happy birthday!",
+  wishMessage:
+    "Wishing you a day full of love, laughter, and your favourite songs. This little world is just for you.",
+  accent: "#e7b86c",
+  background: "#1d152b",
+  surface: "#30213f",
+  text: "#fff8ed",
+  loadingAnimation: "moments-7",
+  headerAnimation: "moments-7",
+  lyricsAnimation: "moments-1",
+  durationMinutes: 1440,
+  loadingMessage:
+    "A birthday surprise, made just for you. Your music is almost ready!",
+};
+export const CUSTOM_ANIMATION_SETS = [
+  {
+    id: "together",
+    label: "Together",
+    loadingAnimation: "couples-1",
+    headerAnimation: "couples-2",
+    lyricsAnimation: "couples-3",
+  },
+  {
+    id: "birthday",
+    label: "Birthday wishes",
+    loadingAnimation: "moments-7",
+    headerAnimation: "moments-7",
+    lyricsAnimation: "moments-1",
+  },
+  {
+    id: "party",
+    label: "Dance party",
+    loadingAnimation: "moments-2",
+    headerAnimation: "moments-4",
+    lyricsAnimation: "moments-5",
+  },
+  {
+    id: "space",
+    label: "Under the stars",
+    loadingAnimation: "moments-6",
+    headerAnimation: "moments-1",
+    lyricsAnimation: "moments-3",
+  },
+] as const;
 const HEX = /^#[0-9a-f]{6}$/i;
 export function isCustomizationConfig(
   value: unknown,
@@ -80,6 +167,13 @@ export function isCustomizationConfig(
   if (!value || typeof value !== "object") return false;
   const c = value as Record<string, unknown>;
   return (
+    (c.template == null ||
+      c.template === "partner" ||
+      c.template === "birthday") &&
+    (c.wishMessage == null ||
+      (typeof c.wishMessage === "string" &&
+        c.wishMessage.length <= 280 &&
+        !/[\u0000-\u001f\u007f]/.test(c.wishMessage))) &&
     typeof c.title === "string" &&
     c.title.length > 0 &&
     c.title.length <= 60 &&

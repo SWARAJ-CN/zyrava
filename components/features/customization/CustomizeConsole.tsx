@@ -16,6 +16,8 @@ import { formatPaymentAmount } from "@/lib/razorpay";
 import { apiFetch } from "@/lib/api";
 import {
   CUSTOM_ANIMATIONS,
+  CUSTOM_ANIMATION_SETS,
+  BIRTHDAY_CUSTOMIZATION,
   CUSTOM_PALETTES,
   DEFAULT_CUSTOMIZATION,
   durationLabel,
@@ -24,6 +26,7 @@ import {
   isCustomizationConfig,
   type AnimationId,
   type CustomizationConfig,
+  type CustomizationTemplate,
   type CustomizationDesign,
   type CustomizationPerson,
 } from "@/lib/customization";
@@ -94,7 +97,7 @@ function Preview({
             />
             <div>
               <strong>{safe.title}</strong>
-              <p>Your listening room</p>
+              <p>{safe.wishMessage || "Your listening room"}</p>
             </div>
           </div>
           <div className="customize-preview-search">
@@ -201,6 +204,10 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
   const [draft, setDraft] = useState<CustomizationConfig>(
     active?.config ?? DEFAULT_CUSTOMIZATION,
   );
+  const templateDrafts = useRef<
+    Partial<Record<CustomizationTemplate, CustomizationConfig>>
+  >({});
+  const template = draft.template ?? "partner";
   const [durationUnit, setDurationUnit] = useState(() => {
     const minutes = active?.config.durationMinutes;
     return minutes == null || minutes % 1440 === 0
@@ -237,6 +244,25 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
     setDraft((prev) => ({ ...prev, [key]: value }));
     setNotice(null);
     setPreviewDesign(null);
+  };
+  const selectTemplate = (next: CustomizationTemplate) => {
+    if (busy || next === template) return;
+    templateDrafts.current[template] = draft;
+    const nextDraft =
+      templateDrafts.current[next] ??
+      (next === "birthday" ? BIRTHDAY_CUSTOMIZATION : DEFAULT_CUSTOMIZATION);
+    setDraft(nextDraft);
+    const minutes = nextDraft.durationMinutes;
+    setDurationUnit(
+      minutes == null || minutes % 1440 === 0
+        ? 1440
+        : minutes % 60 === 0
+          ? 60
+          : 1,
+    );
+    setSlot("headerAnimation");
+    setPreviewDesign(null);
+    setNotice(null);
   };
   const search = async () => {
     if (query.trim().length < 3) return;
@@ -340,9 +366,74 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
           </button>
         ))}
       </nav>
+      {panel === "design" ? (
+        <div className="customize-template-picker">
+          <div
+            role="tablist"
+            aria-label="Customization occasion"
+            className="customize-template-tabs"
+          >
+            {(
+              [
+                {
+                  id: "partner",
+                  label: "For partner",
+                  detail: "A little world for someone you love",
+                },
+                {
+                  id: "birthday",
+                  label: "Birthday",
+                  detail: "A wish, a surprise, their favourite songs",
+                },
+              ] as const
+            ).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                id={`occasion-${item.id}`}
+                aria-selected={template === item.id}
+                aria-controls="customize-occasion-panel"
+                tabIndex={template === item.id ? 0 : -1}
+                disabled={busy}
+                onClick={() => selectTemplate(item.id)}
+                onKeyDown={(event) => {
+                  if (
+                    ["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                      event.key,
+                    )
+                  ) {
+                    event.preventDefault();
+                    const next =
+                      event.key === "Home"
+                        ? "partner"
+                        : event.key === "End"
+                          ? "birthday"
+                          : template === "partner"
+                            ? "birthday"
+                            : "partner";
+                    selectTemplate(next);
+                    document.getElementById(`occasion-${next}`)?.focus();
+                  }
+                }}
+              >
+                <strong>{item.label}</strong>
+                <span>{item.detail}</span>
+              </button>
+            ))}
+          </div>
+          <p className="customize-help">
+            {template === "birthday"
+              ? "A birthday wish with a warm gold and plum theme. Starts when they apply it; one day by default, or choose your own duration."
+              : "Create a personal gift with your own colours, message, and motion."}
+          </p>
+        </div>
+      ) : null}
       <div className="customize-price-note">
         <strong>{priceLabel} per save or send</strong>
-        <Link href="/payments" className="payment-history-recover">View payment history</Link>
+        <Link href="/payments" className="payment-history-recover">
+          View payment history
+        </Link>
         <span>
           One-time payment through Razorpay. Editing and saving again costs{" "}
           {priceLabel}. Recipients can apply paid gifts for free.
@@ -455,358 +546,429 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
         <div className="customize-editor">
           {panel === "design" ? (
             <form id="customize-form" onSubmit={submit}>
-              <fieldset
-                className="customize-payment-fields"
-                disabled={payment.busy}
+              <div
+                id="customize-occasion-panel"
+                role="tabpanel"
+                aria-labelledby={`occasion-${template}`}
               >
-                <fieldset className="customize-section">
-                  <legend>01 · Who is it for?</legend>
-                  <p className="customize-help">
-                    Choose your own account or find someone by name, email or
-                    phone number.
-                  </p>
-                  <div className="customize-search">
-                    <input
-                      aria-label="Search users by name, email or phone"
-                      value={query}
-                      maxLength={254}
-                      placeholder="Name, email or phone number"
-                      onChange={(e) => {
-                        searchRevision.current++;
-                        setQuery(e.target.value);
-                        setSearching(false);
-                        setSearched(false);
-                        setResults([]);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void search();
-                        }
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      loading={searching}
-                      disabled={query.trim().length < 3}
-                      onClick={() => void search()}
-                    >
-                      Search
-                    </Button>
-                  </div>
-                  <p className="customize-help">
-                    Full usernames are shown. Contact details are masked by the
-                    server; only the last three phone digits are visible.
-                  </p>
-                  {searchError ? (
-                    <p role="alert" className="customize-help">
-                      {searchError}
+                <fieldset
+                  className="customize-payment-fields"
+                  disabled={payment.busy}
+                >
+                  <fieldset className="customize-section">
+                    <legend>01 · Who is it for?</legend>
+                    <p className="customize-help">
+                      Choose your own account or find someone by name, email or
+                      phone number.
                     </p>
-                  ) : null}
-                  {searched && !results.length ? (
-                    <p role="status" className="customize-help">
-                      No matching users. Try their name, email or phone number.
-                    </p>
-                  ) : null}
-                  {!!results.length ? (
-                    <ul
-                      className="customize-results"
-                      aria-label="Matching users"
-                    >
-                      {results.map((person) => (
-                        <li key={person.id}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRecipient(person);
-                              setResults([]);
-                              setSearched(false);
-                              setNotice(null);
-                            }}
-                          >
-                            <strong>{person.name || "ZYRAVA listener"}</strong>
-                            <span>
-                              {[person.email, person.phone]
-                                .filter(Boolean)
-                                .join(" · ") || "No contact details"}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  <div className="customize-recipient">
-                    <Icon name="heart" className="size-5" />
-                    <div>
-                      <strong>
-                        {recipient?.id === me.id
-                          ? "For me"
-                          : recipient?.name || "Select a recipient"}
-                      </strong>
-                      <span>
-                        {[recipient?.email, recipient?.phone]
-                          .filter(Boolean)
-                          .join(" · ") || recipient?.name}
-                      </span>
-                    </div>
-                    {recipient?.id !== me.id ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRecipient(me);
-                          setNotice(null);
+                    <div className="customize-search">
+                      <input
+                        aria-label="Search users by name, email or phone"
+                        value={query}
+                        maxLength={254}
+                        placeholder="Name, email or phone number"
+                        onChange={(e) => {
+                          searchRevision.current++;
+                          setQuery(e.target.value);
+                          setSearching(false);
+                          setSearched(false);
+                          setResults([]);
                         }}
-                      >
-                        Use my account
-                      </button>
-                    ) : (
-                      <span className="customize-chip">YOU</span>
-                    )}
-                  </div>
-                </fieldset>
-                <fieldset className="customize-section">
-                  <legend>02 · Set the mood</legend>
-                  <label className="customize-label">
-                    Design name
-                    <input
-                      value={draft.title}
-                      maxLength={60}
-                      required
-                      onChange={(e) => change("title", e.target.value)}
-                      placeholder="A little world for you"
-                    />
-                  </label>
-                  <p className="customize-help">
-                    144 colour palettes, plus your own hex colours.
-                  </p>
-                  <div
-                    className="customize-palette-grid"
-                    role="group"
-                    aria-label="144 colour palettes"
-                  >
-                    {CUSTOM_PALETTES.map((palette) => (
-                      <button
-                        type="button"
-                        key={palette.name}
-                        style={{ background: palette.accent }}
-                        title={`${palette.name} · ${palette.accent}`}
-                        aria-label={`${palette.name} ${palette.accent}`}
-                        aria-pressed={draft.accent === palette.accent}
-                        onClick={() => {
-                          setDraft((prev) => ({
-                            ...prev,
-                            accent: palette.accent,
-                            background: palette.background,
-                            surface: palette.surface,
-                            text: palette.text,
-                          }));
-                          setPreviewDesign(null);
-                          setNotice(null);
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void search();
+                          }
                         }}
                       />
-                    ))}
-                  </div>
-                  <div className="customize-colors">
-                    {COLORS.map(({ key, label }) => (
-                      <label key={key} className="customize-color">
-                        <span>{label}</span>
-                        <div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        loading={searching}
+                        disabled={query.trim().length < 3}
+                        onClick={() => void search()}
+                      >
+                        Search
+                      </Button>
+                    </div>
+                    <p className="customize-help">
+                      Full usernames are shown. Contact details are masked by
+                      the server; only the last three phone digits are visible.
+                    </p>
+                    {searchError ? (
+                      <p role="alert" className="customize-help">
+                        {searchError}
+                      </p>
+                    ) : null}
+                    {searched && !results.length ? (
+                      <p role="status" className="customize-help">
+                        No matching users. Try their name, email or phone
+                        number.
+                      </p>
+                    ) : null}
+                    {!!results.length ? (
+                      <ul
+                        className="customize-results"
+                        aria-label="Matching users"
+                      >
+                        {results.map((person) => (
+                          <li key={person.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRecipient(person);
+                                setResults([]);
+                                setSearched(false);
+                                setNotice(null);
+                              }}
+                            >
+                              <strong>
+                                {person.name || "ZYRAVA listener"}
+                              </strong>
+                              <span>
+                                {[person.email, person.phone]
+                                  .filter(Boolean)
+                                  .join(" · ") || "No contact details"}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <div className="customize-recipient">
+                      <Icon name="heart" className="size-5" />
+                      <div>
+                        <strong>
+                          {recipient?.id === me.id
+                            ? "For me"
+                            : recipient?.name || "Select a recipient"}
+                        </strong>
+                        <span>
+                          {[recipient?.email, recipient?.phone]
+                            .filter(Boolean)
+                            .join(" · ") || recipient?.name}
+                        </span>
+                      </div>
+                      {recipient?.id !== me.id ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecipient(me);
+                            setNotice(null);
+                          }}
+                        >
+                          Use my account
+                        </button>
+                      ) : (
+                        <span className="customize-chip">YOU</span>
+                      )}
+                    </div>
+                  </fieldset>
+                  <fieldset className="customize-section">
+                    <legend>02 · Set the mood</legend>
+                    <label className="customize-label">
+                      Design name
+                      <input
+                        value={draft.title}
+                        maxLength={60}
+                        required
+                        onChange={(e) => change("title", e.target.value)}
+                        placeholder="A little world for you"
+                      />
+                    </label>
+                    <p className="customize-help">
+                      144 colour palettes, plus your own hex colours.
+                    </p>
+                    <div
+                      className="customize-palette-grid"
+                      role="group"
+                      aria-label="144 colour palettes"
+                    >
+                      {CUSTOM_PALETTES.map((palette) => (
+                        <button
+                          type="button"
+                          key={palette.name}
+                          style={{ background: palette.accent }}
+                          title={`${palette.name} · ${palette.accent}`}
+                          aria-label={`${palette.name} ${palette.accent}`}
+                          aria-pressed={draft.accent === palette.accent}
+                          onClick={() => {
+                            setDraft((prev) => ({
+                              ...prev,
+                              accent: palette.accent,
+                              background: palette.background,
+                              surface: palette.surface,
+                              text: palette.text,
+                            }));
+                            setPreviewDesign(null);
+                            setNotice(null);
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div className="customize-colors">
+                      {COLORS.map(({ key, label }) => (
+                        <label key={key} className="customize-color">
+                          <span>{label}</span>
+                          <div>
+                            <input
+                              type="color"
+                              aria-label={`${label} colour picker`}
+                              value={
+                                HEX.test(draft[key])
+                                  ? draft[key]
+                                  : DEFAULT_CUSTOMIZATION[key]
+                              }
+                              onChange={(e) => change(key, e.target.value)}
+                            />
+                            <input
+                              aria-label={`${label} hex colour`}
+                              value={draft[key]}
+                              maxLength={7}
+                              pattern="#[0-9a-fA-F]{6}"
+                              required
+                              onChange={(e) => change(key, e.target.value)}
+                              spellCheck={false}
+                            />
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {lowContrast ? (
+                      <p className="customize-help" role="status">
+                        Text may be hard to read. Choose lighter text or a
+                        darker background.
+                      </p>
+                    ) : null}
+                  </fieldset>
+                  <fieldset className="customize-section">
+                    <legend>03 · Add a little motion</legend>
+                    <p className="customize-help">
+                      Select a location, then choose an animation. Watch it in
+                      the preview.
+                    </p>
+                    <div
+                      className="customize-motion-sets"
+                      role="group"
+                      aria-label="Animation sets"
+                    >
+                      {CUSTOM_ANIMATION_SETS.map((set) => (
+                        <button
+                          type="button"
+                          key={set.id}
+                          aria-pressed={SLOTS.every(
+                            ({ key }) => draft[key] === set[key],
+                          )}
+                          onClick={() => {
+                            setDraft((prev) => ({
+                              ...prev,
+                              loadingAnimation: set.loadingAnimation,
+                              headerAnimation: set.headerAnimation,
+                              lyricsAnimation: set.lyricsAnimation,
+                            }));
+                            setPreviewDesign(null);
+                            setNotice(null);
+                          }}
+                        >
+                          {set.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="customize-help">
+                      Sets fill all three locations. You can also mix any of the
+                      11 animations below.
+                    </p>
+                    <div
+                      className="customize-slot-tabs"
+                      role="group"
+                      aria-label="Animation location"
+                    >
+                      {SLOTS.map((item) => (
+                        <button
+                          type="button"
+                          key={item.key}
+                          aria-pressed={slot === item.key}
+                          onClick={() => {
+                            setSlot(item.key);
+                            setPreviewDesign(null);
+                          }}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div
+                      className="customize-animation-grid"
+                      role="group"
+                      aria-label={`${SLOTS.find((item) => item.key === slot)?.label} animation`}
+                    >
+                      {[
+                        { id: "none", label: "No animation" },
+                        ...CUSTOM_ANIMATIONS,
+                      ].map((asset, i) => (
+                        <button
+                          type="button"
+                          key={asset.id}
+                          aria-pressed={draft[slot] === asset.id}
+                          onClick={() => change(slot, asset.id as AnimationId)}
+                        >
+                          {i ? (
+                            <CustomizationAnimation
+                              id={asset.id as AnimationId}
+                              className="size-20"
+                            />
+                          ) : (
+                            <span className="grid size-20 place-items-center">
+                              <Icon name="x" className="size-5" />
+                            </span>
+                          )}
+                          <span>{asset.label}</span>
+                          {draft[slot] === asset.id ? (
+                            <span className="customize-selected">Selected</span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <fieldset className="customize-section">
+                    <legend>04 · Say something lovely</legend>
+                    <label className="customize-label">
+                      {template === "birthday"
+                        ? "Birthday wish"
+                        : "Personal message"}
+                      <textarea
+                        aria-label={
+                          template === "birthday"
+                            ? "Birthday wish"
+                            : "Personal message"
+                        }
+                        value={draft.wishMessage ?? ""}
+                        maxLength={280}
+                        rows={3}
+                        onChange={(event) =>
+                          change(
+                            "wishMessage",
+                            event.target.value.replace(/[\r\n]/g, " "),
+                          )
+                        }
+                        placeholder={
+                          template === "birthday"
+                            ? "Happy birthday! Here’s to a year full of your favourite moments."
+                            : "A little love in every listen."
+                        }
+                      />
+                    </label>
+                    <p className="customize-help">
+                      {(draft.wishMessage ?? "").length}/280 · Shown in their
+                      home header after they apply your design.
+                    </p>
+
+                    <label className="customize-label">
+                      Loading screen message
+                      <textarea
+                        value={draft.loadingMessage}
+                        maxLength={140}
+                        rows={3}
+                        onChange={(e) =>
+                          change(
+                            "loadingMessage",
+                            e.target.value.replace(/[\r\n]/g, " "),
+                          )
+                        }
+                        placeholder="Your favourite songs are getting ready."
+                      />
+                    </label>
+                    <p className="customize-help">
+                      {draft.loadingMessage.length}/140 · Your name and masked
+                      contact will appear on their customization.
+                    </p>
+                  </fieldset>
+                  <fieldset className="customize-section">
+                    <legend>05 · How long should it stay?</legend>
+                    <label className="customize-label">
+                      Customization duration
+                      <select
+                        value={
+                          draft.durationMinutes == null ? "forever" : "timed"
+                        }
+                        onChange={(e) => {
+                          setDurationUnit(1440);
+                          change(
+                            "durationMinutes",
+                            e.target.value === "forever" ? null : 10080,
+                          );
+                        }}
+                      >
+                        <option value="forever">Until removed</option>
+                        <option value="timed">For a set time</option>
+                      </select>
+                    </label>
+                    {draft.durationMinutes != null ? (
+                      <div className="customize-duration">
+                        <label className="customize-label">
+                          Duration
                           <input
-                            type="color"
-                            aria-label={`${label} colour picker`}
+                            type="number"
+                            min={1}
+                            max={Math.floor(525600 / durationUnit)}
+                            step={1}
                             value={
-                              HEX.test(draft[key])
-                                ? draft[key]
-                                : DEFAULT_CUSTOMIZATION[key]
+                              Number.isFinite(draft.durationMinutes)
+                                ? draft.durationMinutes / durationUnit
+                                : ""
                             }
-                            onChange={(e) => change(key, e.target.value)}
+                            onChange={(e) =>
+                              change(
+                                "durationMinutes",
+                                e.target.value === ""
+                                  ? NaN
+                                  : Number(e.target.value) * durationUnit,
+                              )
+                            }
                           />
-                          <input
-                            aria-label={`${label} hex colour`}
-                            value={draft[key]}
-                            maxLength={7}
-                            pattern="#[0-9a-fA-F]{6}"
-                            required
-                            onChange={(e) => change(key, e.target.value)}
-                            spellCheck={false}
-                          />
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                  {lowContrast ? (
-                    <p className="customize-help" role="status">
-                      Text may be hard to read. Choose lighter text or a darker
-                      background.
+                        </label>
+                        <label className="customize-label">
+                          Time unit
+                          <select
+                            value={durationUnit}
+                            onChange={(e) => {
+                              const next = Number(e.target.value);
+                              change(
+                                "durationMinutes",
+                                Math.min(
+                                  Math.floor(525600 / next),
+                                  Math.max(
+                                    1,
+                                    Math.round(
+                                      (draft.durationMinutes ?? durationUnit) /
+                                        durationUnit,
+                                    ),
+                                  ),
+                                ) * next,
+                              );
+                              setDurationUnit(next);
+                            }}
+                          >
+                            <option value={1}>Minutes</option>
+                            <option value={60}>Hours</option>
+                            <option value={1440}>Days</option>
+                          </select>
+                        </label>
+                      </div>
+                    ) : null}
+                    <p className="customize-help">
+                      Starts when the recipient applies it. Choose up to 365
+                      days. Their original theme returns automatically, and they
+                      can remove it anytime.
+                    </p>
+                  </fieldset>
+                  {notice ? (
+                    <p className="customize-notice" role="status">
+                      {notice}
                     </p>
                   ) : null}
                 </fieldset>
-                <fieldset className="customize-section">
-                  <legend>03 · Add a little motion</legend>
-                  <p className="customize-help">
-                    Select a location, then choose an animation. Watch it in the
-                    preview.
-                  </p>
-                  <div
-                    className="customize-slot-tabs"
-                    role="group"
-                    aria-label="Animation location"
-                  >
-                    {SLOTS.map((item) => (
-                      <button
-                        type="button"
-                        key={item.key}
-                        aria-pressed={slot === item.key}
-                        onClick={() => {
-                          setSlot(item.key);
-                          setPreviewDesign(null);
-                        }}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div
-                    className="customize-animation-grid"
-                    role="group"
-                    aria-label={`${SLOTS.find((item) => item.key === slot)?.label} animation`}
-                  >
-                    {[
-                      { id: "none", label: "No animation" },
-                      ...CUSTOM_ANIMATIONS,
-                    ].map((asset, i) => (
-                      <button
-                        type="button"
-                        key={asset.id}
-                        aria-pressed={draft[slot] === asset.id}
-                        onClick={() => change(slot, asset.id as AnimationId)}
-                      >
-                        {i ? (
-                          <CustomizationAnimation
-                            id={asset.id as AnimationId}
-                            className="size-20"
-                          />
-                        ) : (
-                          <span className="grid size-20 place-items-center">
-                            <Icon name="x" className="size-5" />
-                          </span>
-                        )}
-                        <span>{asset.label}</span>
-                        {draft[slot] === asset.id ? (
-                          <span className="customize-selected">Selected</span>
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-                <fieldset className="customize-section">
-                  <legend>04 · Say something lovely</legend>
-                  <label className="customize-label">
-                    Loading screen message
-                    <textarea
-                      value={draft.loadingMessage}
-                      maxLength={140}
-                      rows={3}
-                      onChange={(e) =>
-                        change(
-                          "loadingMessage",
-                          e.target.value.replace(/[\r\n]/g, " "),
-                        )
-                      }
-                      placeholder="Your favourite songs are getting ready."
-                    />
-                  </label>
-                  <p className="customize-help">
-                    {draft.loadingMessage.length}/140 · Your name and masked
-                    contact will appear on their customization.
-                  </p>
-                </fieldset>
-                <fieldset className="customize-section">
-                  <legend>05 · How long should it stay?</legend>
-                  <label className="customize-label">
-                    Customization duration
-                    <select
-                      value={
-                        draft.durationMinutes == null ? "forever" : "timed"
-                      }
-                      onChange={(e) => {
-                        setDurationUnit(1440);
-                        change(
-                          "durationMinutes",
-                          e.target.value === "forever" ? null : 10080,
-                        );
-                      }}
-                    >
-                      <option value="forever">Until removed</option>
-                      <option value="timed">For a set time</option>
-                    </select>
-                  </label>
-                  {draft.durationMinutes != null ? (
-                    <div className="customize-duration">
-                      <label className="customize-label">
-                        Duration
-                        <input
-                          type="number"
-                          min={1}
-                          max={Math.floor(525600 / durationUnit)}
-                          step={1}
-                          value={
-                            Number.isFinite(draft.durationMinutes)
-                              ? draft.durationMinutes / durationUnit
-                              : ""
-                          }
-                          onChange={(e) =>
-                            change(
-                              "durationMinutes",
-                              e.target.value === ""
-                                ? NaN
-                                : Number(e.target.value) * durationUnit,
-                            )
-                          }
-                        />
-                      </label>
-                      <label className="customize-label">
-                        Time unit
-                        <select
-                          value={durationUnit}
-                          onChange={(e) => {
-                            const next = Number(e.target.value);
-                            change(
-                              "durationMinutes",
-                              Math.min(
-                                Math.floor(525600 / next),
-                                Math.max(
-                                  1,
-                                  Math.round(
-                                    (draft.durationMinutes ?? durationUnit) /
-                                      durationUnit,
-                                  ),
-                                ),
-                              ) * next,
-                            );
-                            setDurationUnit(next);
-                          }}
-                        >
-                          <option value={1}>Minutes</option>
-                          <option value={60}>Hours</option>
-                          <option value={1440}>Days</option>
-                        </select>
-                      </label>
-                    </div>
-                  ) : null}
-                  <p className="customize-help">
-                    Starts when the recipient applies it. Choose up to 365 days.
-                    Their original theme returns automatically, and they can
-                    remove it anytime.
-                  </p>
-                </fieldset>
-                {notice ? (
-                  <p className="customize-notice" role="status">
-                    {notice}
-                  </p>
-                ) : null}
-              </fieldset>
+              </div>
             </form>
           ) : (
             <section
@@ -844,6 +1006,11 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
                       ))}
                     </div>
                     <h3>{design.config.title}</h3>
+                    <span className="customize-chip">
+                      {design.config.template === "birthday"
+                        ? "Birthday"
+                        : "For partner"}
+                    </span>
                     <p>{durationLabel(design.config.durationMinutes)}</p>
                     <p>
                       {panel === "received" ? "Created by" : "For"}{" "}
@@ -905,6 +1072,7 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
                             size="sm"
                             variant="ghost"
                             onClick={() => {
+                              templateDrafts.current[template] = draft;
                               setDraft(design.config);
                               const minutes = design.config.durationMinutes;
                               setDurationUnit(
