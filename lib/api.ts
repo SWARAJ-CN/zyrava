@@ -20,6 +20,7 @@ export class ApiError extends Error {
 }
 
 export interface AuthUser {
+  customization?: import("./customization").AppliedCustomization | null;
   id: string;
   name: string | null;
   email: string | null;

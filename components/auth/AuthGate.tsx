@@ -6,6 +6,8 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 
+import { useCustomization } from "@/components/providers/CustomizationProvider";
+import { CustomizationAnimation } from "@/components/features/customization/CustomizationAnimation";
 import { PersonalDedication } from "@/components/PersonalDedication";
 
 const PUBLIC_ROUTES = new Set(["/login", "/register"]);
@@ -57,6 +59,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { status, expired, personalExperience, returningPersonalEmail } = useAuth();
   const personalWelcome = personalExperience || (status !== "authenticated" && !!returningPersonalEmail);
+  const { loadingAppearance }=useCustomization();
+  const customLoading=!personalWelcome?loadingAppearance:null;
   const [waking, setWaking] = useState(false);
   const reducedMotion = useReducedMotion();
   const isPublic = PUBLIC_ROUTES.has(pathname);
@@ -97,7 +101,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
             className="pointer-events-none fixed inset-0 z-[200] overflow-y-auto"
             initial={false}
             exit={{ opacity: 0 }}
-            transition={{ duration: personalWelcome && !reducedMotion ? 0.38 : 0 }}
+            transition={{ duration: (personalWelcome || customLoading) && !reducedMotion ? 0.38 : 0 }}
             data-session-splash
           >
     <div data-personal-welcome={personalWelcome || undefined} className="relative grid min-h-dvh place-items-center overflow-hidden bg-background px-6 text-foreground">
@@ -131,12 +135,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
         aria-hidden
         className="pointer-events-none absolute left-1/2 top-1/2 size-[38rem] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.18] blur-3xl"
         style={{
-          background: personalWelcome ? "radial-gradient(ellipse, #88374c, #70432f 60%, transparent)" : "conic-gradient(from 0deg at 50% 50%, #10b981 0deg, #022c22 120deg, #000000 240deg, #10b981 360deg)",
+          background: customLoading ? "radial-gradient(ellipse, var(--accent), var(--surface) 60%, transparent)" : personalWelcome ? "radial-gradient(ellipse, #88374c, #70432f 60%, transparent)" : "conic-gradient(from 0deg at 50% 50%, #10b981 0deg, #022c22 120deg, #000000 240deg, #10b981 360deg)",
           animation: "bg-rotate 10s linear infinite",
         }}
       />
 
-      {waking && status === "loading" ? (
+      {customLoading ? (
+        <div role="status" aria-live="polite" aria-busy="true" className="relative flex w-full max-w-xs flex-col items-center gap-5 text-center">
+          <CustomizationAnimation id={customLoading.config.loadingAnimation} className="size-44"/>
+          <h1 className="text-lg font-semibold">{customLoading.config.title}</h1>
+          <p className="text-sm leading-relaxed text-muted">{customLoading.config.loadingMessage||"Your music is getting ready."}</p>
+          {waking?<p className="text-xs text-muted">Connecting to your music…</p>:null}
+          <p className="break-words text-xs text-muted">Created by {customLoading.creator.name||"ZYRAVA listener"}{customLoading.creator.email?<><br/>{customLoading.creator.email}</>:null}</p>
+        </div>
+      ) : waking && status === "loading" ? (
         <div
           role="status"
           aria-live="polite"

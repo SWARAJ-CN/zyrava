@@ -22,7 +22,8 @@ export function AppChrome() {
   const pathname = usePathname();
   const { status, personalExperience } = useAuth();
   const { isGuest } = useGuestLock();
-  if (AUTH_ROUTES.has(pathname) || (status !== "authenticated" && !isGuest)) return null;
+  if (AUTH_ROUTES.has(pathname) || (status !== "authenticated" && !isGuest))
+    return null;
   return (
     <>
       <SideBar key={personalExperience ? "personal" : "standard"} />

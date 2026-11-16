@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { useCustomization } from "@/components/providers/CustomizationProvider";
+import { CustomizationCredit } from "@/components/features/customization/CustomizationCredit";
 import { PersonalDedication } from "@/components/PersonalDedication";
 import { Pagination, SegmentedControl } from "@/components/ui/Controls";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
@@ -99,6 +101,7 @@ type PageResult = PagePayload | { error: string } | null;
 
 export default function MusicPage() {
   const { personalExperience } = useAuth();
+  const { active:customization } = useCustomization();
   const [input, setInput] = useState("");
   const [term, setTerm] = useState<string>(REGIONS[0].label);
   /** Pages skipped before the feed opens — drawn once per visit. */
@@ -703,7 +706,7 @@ export default function MusicPage() {
       id="top"
       className={cn(
         "w-full px-4 pb-24 pt-5 sm:px-6 sm:pt-7 lg:px-10",
-        personalExperience ? "personal-home mx-0 max-w-none" : "mx-auto max-w-screen-2xl",
+        (personalExperience || customization) ? "personal-home mx-0 max-w-none" : "mx-auto max-w-screen-2xl",
         "dock-offset",
         !sidebarWide && "dock-offset--rail",
         nowPlayingOpen && "xl:pe-[24rem]"
@@ -730,7 +733,7 @@ export default function MusicPage() {
                   .getElementById("library-list")
                   ?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
-              className={personalExperience ? "w-full" : "w-full sm:w-96"}
+              className={personalExperience || customization ? "w-full" : "w-full sm:w-96"}
             />
         }
       />
@@ -1310,7 +1313,7 @@ export default function MusicPage() {
       {/* Label line — the quiet footer, Zomato style. Large but faint, so it
           reads like the wordmark watermark at the top of the page. */}
       <footer className="mt-16 overflow-hidden px-2 pb-4 text-center sm:mt-20">
-        {personalExperience ? <PersonalDedication className="mx-auto max-w-full" /> : (<p className="text-balance text-[clamp(1.5rem,6.5vw,5rem)] font-black leading-[1.05] tracking-tighter text-foreground/[0.07]">
+        {customization ? <CustomizationCredit/> : personalExperience ? <PersonalDedication className="mx-auto max-w-full" /> : (<p className="text-balance text-[clamp(1.5rem,6.5vw,5rem)] font-black leading-[1.05] tracking-tighter text-foreground/[0.07]">
           Crafted with{" "}
           <Icon
             name="heart"

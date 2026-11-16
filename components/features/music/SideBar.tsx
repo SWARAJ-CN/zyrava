@@ -2,11 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
+import { useCustomization } from "@/components/providers/CustomizationProvider";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useGuestLock } from "@/components/providers/GuestLockProvider";
 import { useLibrary } from "@/components/providers/LibraryProvider";
@@ -36,18 +38,20 @@ type DockTab = "browse" | "library" | "dashboard" | "mixer";
  * `chat` is not a shelf of the dock — it is the door to the community room,
  * which draws over the page like the console does, so it never lands in `tab`.
  */
-type DockEntry = DockTab | "chat";
+type DockEntry = DockTab | "chat" | "customize" | "payments";
 
 const TABS: Array<{
   value: DockEntry;
   label: string;
-  icon: "music" | "heart" | "gauge" | "sliders" | "message";
+  icon: "music" | "heart" | "gauge" | "sliders" | "message" | "sparkles" | "list";
 }> = [
   { value: "browse", label: "Browse", icon: "music" },
   { value: "library", label: "Library", icon: "heart" },
   { value: "dashboard", label: "Audio desk", icon: "gauge" },
   { value: "mixer", label: "Mixer", icon: "sliders" },
   { value: "chat", label: "Community", icon: "message" },
+  { value: "customize", label: "Customize", icon: "sparkles" },
+  { value: "payments", label: "Payments", icon: "list" },
 ];
 
 const BROWSE_LINKS: Array<{ label: string; id: string; icon: "search" | "globe" | "list" }> = [
@@ -99,6 +103,12 @@ function DockIcon({
  */
 function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
   const [tab, setTab] = useState<DockTab>("browse");
+  const {state:customizations}=useCustomization();
+  const pathname = usePathname();
+  const router = useRouter();
+  const customizeOpen = pathname === "/customize";
+  const paymentsOpen = pathname === "/payments";
+  const accountPageOpen = customizeOpen || paymentsOpen;
   const [heavyPending, setHeavyPending] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [playlistName, setPlaylistName] = useState("");
@@ -246,7 +256,8 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
         )}
       >
         {TABS.filter((entry) => !personalExperience || entry.value === "browse" || entry.value === "library").map((entry) => {
-          const active = entry.value === "chat" ? chatOpen : tab === entry.value;
+          const active = entry.value === "payments" ? paymentsOpen : entry.value === "customize" ? customizeOpen : entry.value === "chat" ? chatOpen : !accountPageOpen && tab === entry.value;
+          const badge=entry.value==="customize"?customizations.incoming.length:entry.value==="chat"?chatBadge:0;
           return (
             <button
               key={entry.value}
@@ -257,6 +268,12 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
               onClick={() => {
                 /* The community room is an overlay, not another shelf — it never
                    takes the dock's own tab state with it. */
+                if (entry.value === "customize" || entry.value === "payments") {
+                  if (!requireAuth("tab")) return;
+                  router.push(entry.value === "payments" ? "/payments" : "/customize");
+                  if (mobile) setMobileNavOpen(false);
+                  return;
+                }
                 if (entry.value === "chat") {
                   if (!requireAuth("community")) return;
                   openChat();
@@ -268,6 +285,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
                 const reason = entry.value === "mixer" ? "mixer" : "tab";
                 if (entry.value !== "browse" && !requireAuth(reason)) return;
                 setTab(entry.value);
+                if (entry.value === "browse" && accountPageOpen) router.push("/");
                 if (!wide) setSidebarWide(true);
               }}
               className={cn(
@@ -295,15 +313,15 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
               {wide ? (
                 <>
                   <span className="min-w-0 flex-1 truncate text-start">{entry.label}</span>
-                  {entry.value === "chat" && chatBadge ? (
+                  {badge ? (
                     <span className="grid h-5 min-w-5 flex-none place-items-center rounded-full bg-accent px-1 text-[10px] font-bold text-accent-foreground tabular-nums">
-                      {chatBadge > 9 ? "9+" : chatBadge}
+                      {badge > 9 ? "9+" : badge}
                     </span>
                   ) : active ? (
                     <span aria-hidden className="size-1.5 flex-none rounded-full bg-accent" />
                   ) : null}
                 </>
-              ) : entry.value === "chat" && chatBadge ? (
+              ) : badge ? (
                 <span
                   aria-hidden
                   className="absolute end-1.5 top-1.5 size-2 rounded-full bg-accent"
@@ -317,7 +335,14 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
       {/* Panel body — the rail shows navigation only. */}
       {wide ? (
         <div className="dock-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-4">
-          {tab === "browse" ? (
+          {accountPageOpen && tab === "browse" ? (
+            <div className="px-2.5 py-2">
+              <SectionLabel>Your listening room</SectionLabel>
+              <p className="text-xs leading-relaxed text-muted">{paymentsOpen ? "Review your payments, their status, and what each checkout was for." : "Create a look, review designs made for you, or manage your saved customizations."}</p>
+              <button type="button" className="mt-4 text-xs font-semibold text-brand" onClick={() => { router.push("/"); if (mobile) setMobileNavOpen(false); }}>Back to music</button>
+            </div>
+          ) : null}
+          {tab === "browse" && !accountPageOpen ? (
             <div className="flex flex-col gap-0.5">
               <SectionLabel>On this page</SectionLabel>
               {BROWSE_LINKS.map((link) => (

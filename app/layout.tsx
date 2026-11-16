@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { InlineScript } from "@/components/InlineScript";
 import { VisitBeacon } from "@/components/VisitBeacon";
+import { CustomizationProvider } from "@/components/providers/CustomizationProvider";
 import { AppChrome } from "@/components/AppChrome";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { AuthProvider } from "@/components/providers/AuthProvider";
@@ -130,6 +131,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <IdleNotifier />
             <ThemeProvider>
               <AuthProvider>
+                <CustomizationProvider>
                 <GuestLockProvider>
                   <ToastProvider>
                     <CommunityProvider>
@@ -147,6 +149,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                     </CommunityProvider>
                   </ToastProvider>
                 </GuestLockProvider>
+                </CustomizationProvider>
               </AuthProvider>
             </ThemeProvider>
           </PwaProvider>
