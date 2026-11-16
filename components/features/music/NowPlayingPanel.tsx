@@ -4,7 +4,7 @@ import Image from "next/image";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
-import { RelatedSongs } from "@/components/features/music/RelatedSongs";
+import { NowPlayingTabs, useNowPlayingTab } from "@/components/features/music/NowPlayingTabs";
 import { BeatGlow, songHueSeed } from "@/components/features/music/BeatGlow";
 
 /**
@@ -26,6 +26,9 @@ export function NowPlayingPanel() {
     duration,
     getAnalyser,
   } = useMusicPlayer();
+
+  /* Read before the early return below: a hook cannot sit behind a guard. */
+  const [tab, chooseTab] = useNowPlayingTab();
 
   if (!nowPlayingOpen || !current) return null;
 
@@ -52,7 +55,15 @@ export function NowPlayingPanel() {
 
       {/* Artwork card with the play overlay */}
       <div className="relative z-10 px-5">
-        <div className="group relative aspect-square w-full overflow-hidden rounded-lg border border-separator bg-surface-muted">
+        <div
+          className={cn(
+            "group relative w-full overflow-hidden rounded-lg border border-separator bg-surface-muted",
+            /* Reading words needs a window, not a strip. In lyrics mode the art
+               steps down to a banner and the card hands that height back to the
+               lines; the radio tab keeps the square exactly as it was. */
+            tab === "lyrics" ? "h-24" : "aspect-square"
+          )}
+        >
           {current.image ? (
             <Image
               src={current.imageLarge || current.image}
@@ -121,8 +132,8 @@ export function NowPlayingPanel() {
           </div>
         </div>
 
-        {/* Catalogue radio for whatever is playing — Spotify's side list. */}
-        <RelatedSongs song={current} />
+        {/* Lyrics and catalogue radio for whatever is playing, one at a time. */}
+        <NowPlayingTabs song={current} tab={tab} onTab={chooseTab} />
 
         {/* Quick actions pinned at the bottom, Spotify style */}
         <div className="mt-auto flex items-center gap-2 border-t border-separator pt-3">
