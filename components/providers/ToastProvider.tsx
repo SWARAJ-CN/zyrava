@@ -38,7 +38,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ToastContextValue>(() => {
     const show = ({ title, description, variant = "info" }: ToastInput) => {
-      heroToast(title, { description, variant: VARIANT[variant] });
+      heroToast(title, {
+        description,
+        variant: VARIANT[variant],
+        timeout: variant === "error" ? 6000 : 3500,
+      });
       /* The voice says what the toast says, so the reader does not have to
          look at the screen to know something went through. */
       announce(description ? `${title}. ${description}` : title, { lang: speech });
@@ -52,7 +56,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   return (
     <ToastContext.Provider value={value}>
-      <Toast.Provider placement="bottom end" />
+      <Toast.Provider
+        placement="top end"
+        className="zyrava-toasts"
+        width="min(22rem, calc(100vw - 2rem))"
+        maxVisibleToasts={2}
+        gap={10}
+      />
       {children}
     </ToastContext.Provider>
   );

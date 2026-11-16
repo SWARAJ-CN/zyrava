@@ -24,8 +24,7 @@ function readTab(): NowPlayingTab {
 }
 
 /**
- * Held above the switch because the card needs the choice too: the artwork
- * gives up its square in lyrics mode so the words have a window worth reading.
+ * Keep the selected tab in the card and remember it between visits.
  */
 export function useNowPlayingTab(): [NowPlayingTab, (next: NowPlayingTab) => void] {
   const [tab, setTab] = useState<NowPlayingTab>(readTab);

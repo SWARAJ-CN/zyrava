@@ -391,28 +391,58 @@ button[type="button"] {
   cursor: pointer;
 }
 
-/* Toasts float above the player bar instead of behind it. HeroUI pins the
-   bottom region at 1rem, exactly under the sticky player; the clearance
-   tracks the bar's height (two stacked rows on phones, one on sm+). */
-:root {
-  --toast-clearance: 7.5rem;
+/* Keep notifications away from the footer, pagination and music controls. */
+.zyrava-toasts {
+  top: calc(1rem + env(safe-area-inset-top, 0px));
+  inset-inline-end: max(1rem, env(safe-area-inset-right, 0px));
+  width: min(22rem, calc(100vw - 2rem));
+  min-width: 0;
 }
-@media (min-width: 40rem) {
-  :root {
-    --toast-clearance: 5.5rem;
-  }
+.zyrava-toasts .toast {
+  gap: 0.75rem;
+  padding: 1rem 3.25rem 1rem 1rem;
+  border: 1px solid var(--separator);
+  border-radius: 1.25rem;
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 16%), inset 0 1px 0 rgb(255 255 255 / 6%);
 }
-.toast-region--bottom,
-.toast-region--bottom-start,
-.toast-region--bottom-end {
-  bottom: calc(var(--toast-clearance) + env(safe-area-inset-bottom, 0px));
+.zyrava-toasts .toast__content { min-width: 0; gap: 0.2rem; }
+.zyrava-toasts .toast__title {
+  font-size: 0.8125rem; font-weight: 650; line-height: 1.45;
+  color: var(--foreground); overflow-wrap: anywhere;
 }
-@media (min-width: 80rem) {
-  .toast-region--bottom-end {
-    /* Wide screens: also step aside from the fixed Now-playing panel. */
-    inset-inline-end: 26.5rem;
-  }
+.zyrava-toasts .toast__description {
+  font-size: 0.75rem; line-height: 1.5; color: var(--muted);
+  overflow-wrap: anywhere;
 }
+.zyrava-toasts .toast__indicator {
+  width: 2rem; height: 2rem; padding: 0; border-radius: 0.75rem;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.zyrava-toasts .toast__close-button {
+  top: 0.625rem; inset-inline-end: 0.5rem;
+  width: 2.5rem; height: 2.5rem; border: 0; border-radius: 50%;
+  opacity: 1; pointer-events: auto; color: var(--muted); background: transparent;
+}
+.zyrava-toasts .toast__close-button:hover {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+.zyrava-toasts .toast[data-exiting="true"] .toast__close-button,
+.zyrava-toasts .toast:not([data-frontmost="true"]):not([data-expanded="true"]) .toast__close-button {
+  opacity: 0; pointer-events: none;
+}
+:root[data-experience="brown-burgundy"] .zyrava-toasts .toast {
+  background: linear-gradient(125deg, #fff4f8, #fbdde9);
+  border-color: #f3b8ce;
+  box-shadow: 0 12px 32px rgb(64 14 34 / 24%), inset 0 1px 0 #fff9fc;
+}
+:root[data-experience="brown-burgundy"] .zyrava-toasts .toast__title { color: #63233c; }
+:root[data-experience="brown-burgundy"] .zyrava-toasts .toast__description { color: #854760; }
+:root[data-experience="brown-burgundy"] .zyrava-toasts .toast__indicator { color: #bb3c70; background: #f8c9db; }
+:root[data-experience="brown-burgundy"] .zyrava-toasts .toast--danger .toast__indicator { color: #a52540; background: #f8c4cd; }
+:root[data-experience="brown-burgundy"] .zyrava-toasts .toast--warning .toast__indicator { color: #8a4a1d; background: #f7dbc3; }
+:root[data-experience="brown-burgundy"] .zyrava-toasts .toast__close-button { color: #854760; }
+:root[data-experience="brown-burgundy"] .zyrava-toasts .toast__close-button:hover { background: #f4c5d7; }
 
 /* The dock morphs between rail and wide on a long, soft-out curve — the
    whole column feels like one spring, and the keyed body cross-fades over

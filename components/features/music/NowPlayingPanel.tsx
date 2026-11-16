@@ -35,12 +35,12 @@ export function NowPlayingPanel() {
   return (
     <aside
       aria-label="Now playing"
-      className="fixed end-4 top-4 bottom-[8.25rem] z-30 hidden w-[21.75rem] flex-none flex-col overflow-hidden rounded-xl border border-separator bg-surface-secondary/85 shadow-pop backdrop-blur-xl xl:flex"
+      className="fixed end-4 top-4 bottom-[8.25rem] z-30 hidden w-[21.75rem] flex-none flex-col overflow-x-hidden overflow-y-auto rounded-xl border border-separator bg-surface-secondary/85 shadow-pop backdrop-blur-xl xl:flex"
     >
       {/* Beat-driven RGB lights behind the card's surface. */}
       <BeatGlow getAnalyser={getAnalyser} playing={playing} hueSeed={songHueSeed(current.id)} />
       {/* Header — Spotify's light top row */}
-      <div className="relative z-10 flex items-center justify-between gap-2 px-5 pb-3 pt-4">
+      <div className="relative z-10 flex shrink-0 items-center justify-between gap-2 px-5 pb-3 pt-4">
         <p className="truncate text-sm font-bold text-foreground">{queueLabel || "Now playing"}</p>
         <button
           type="button"
@@ -54,17 +54,9 @@ export function NowPlayingPanel() {
       </div>
 
       {/* Artwork card with the play overlay */}
-      <div className="relative z-10 px-5">
-        <div
-          className={cn(
-            "group relative w-full overflow-hidden rounded-lg border border-separator bg-surface-muted",
-            /* Reading words needs a window, not a strip. In lyrics mode the art
-               steps down to a banner and the card hands that height back to the
-               lines; the radio tab keeps the square exactly as it was. */
-            tab === "lyrics" ? "h-24" : "aspect-square"
-          )}
-        >
-          {current.image ? (
+      <div className="relative z-10 shrink-0 px-5">
+        <div className="group relative aspect-square w-full overflow-hidden rounded-lg border border-separator bg-surface-muted">
+          {current.imageLarge || current.image ? (
             <Image
               src={current.imageLarge || current.image}
               alt=""
@@ -101,7 +93,7 @@ export function NowPlayingPanel() {
       </div>
 
       {/* Song card — title, artist, album, position */}
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-4 pt-4">
+      <div className="relative z-10 flex min-h-[24rem] flex-1 flex-col px-5 pb-4 pt-4">
         <h2 className="truncate text-2xl font-black tracking-tight text-foreground" title={current.title}>
           {current.title}
         </h2>

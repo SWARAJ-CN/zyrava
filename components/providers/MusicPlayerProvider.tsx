@@ -24,9 +24,8 @@ import { playPad as firePad, type PadName } from "@/lib/dj/pads";
  * ------------------------------------------------------------------ */
 export type RepeatMode = "off" | "all" | "one";
 
-/** Every page load starts clean: master at 1% (raised only by the listener),
- *  Flat EQ, space off. */
-export const DEFAULT_VOLUME = 0.01;
+/** Every page load starts at full app volume, with Flat EQ and space off. */
+export const DEFAULT_VOLUME = 1;
 
 /** What a visitor who has not signed in gets to hear: one page of tracks.
  *  Matches the library's own `PAGE_SIZE`, and is the reason a trial queue is
