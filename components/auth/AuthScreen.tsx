@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { PersonalDedication } from "@/components/PersonalDedication";
+import { matchesPersonalWelcome, forgetPersonalWelcome } from "@/lib/personal-welcome";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff, Lock, Mail, Phone, User } from "lucide-react";
@@ -37,7 +39,7 @@ export function AuthScreen({
   initialSlides?: TrendingSlide[];
 }) {
   const router = useRouter();
-  const { status, login, register } = useAuth();
+  const { status, login, register, returningPersonalEmail } = useAuth();
   const isRegister = mode === "register";
   // Read once on the client; not rendered, so it cannot cause a mismatch.
   const [nextPath] = useState(() =>
@@ -49,6 +51,7 @@ export function AuthScreen({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [identifier, setIdentifier] = useState("");
+  const personalWelcome = !isRegister && matchesPersonalWelcome(returningPersonalEmail, identifier);
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -135,7 +138,7 @@ export function AuthScreen({
     ) : null;
 
   return (
-    <main className="relative min-h-dvh overflow-hidden bg-background text-foreground">
+    <main data-personal-welcome={personalWelcome || undefined} className="relative min-h-dvh overflow-hidden bg-background text-foreground">
       <div className="mx-auto grid min-h-dvh w-full max-w-[96rem] lg:grid-cols-[1fr_1.08fr]">
         <section className="flex min-h-dvh flex-col px-5 py-6 sm:px-10 lg:px-14">
           <div className="flex items-center justify-between gap-3">
@@ -146,7 +149,7 @@ export function AuthScreen({
               ZYRAVA
             </div>
             <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-faint-foreground">
-              Private listening studio
+              {personalWelcome ? "A little world for Baava" : "Private listening studio"}
             </p>
           </div>
 
@@ -156,16 +159,22 @@ export function AuthScreen({
             </div>
 
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand">
-              {isRegister ? "Create your account" : "Welcome back"}
+              {isRegister ? "Create your account" : personalWelcome ? "Welcome back, Vimitha" : "Welcome back"}
             </p>
             <h1 className="mt-2 text-[2rem] font-bold leading-[1.1] tracking-tight sm:text-[2.4rem]">
-              {isRegister ? "Join the studio." : "Sign in to ZYRAVA."}
+              {isRegister ? "Join the studio." : personalWelcome ? "Your music is waiting, Baava." : "Sign in to ZYRAVA."}
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-muted">
               {isRegister
                 ? "One account for your queue, saved mixes and the console."
-                : "Your queue and saved mixes are waiting."}
+                : personalWelcome ? "A little love, your favourite songs, and a space made just for you." : "Your queue and saved mixes are waiting."}
             </p>
+
+            {personalWelcome ? (
+              <button type="button" onClick={() => { forgetPersonalWelcome(); setIdentifier(""); }} className="mt-3 text-xs text-muted underline underline-offset-4 hover:text-foreground">
+                Use another account
+              </button>
+            ) : null}
 
             <form onSubmit={submit} noValidate className="mt-7 flex flex-col gap-4">
               {isRegister ? (
@@ -328,7 +337,7 @@ export function AuthScreen({
                 loading={busy}
                 className="h-11 w-full rounded-none text-[13px] font-semibold"
               >
-                {busy ? "One moment…" : isRegister ? "Create account" : "Sign in"}
+                {busy ? (personalWelcome ? "One moment, Baava…" : "One moment…") : isRegister ? "Create account" : "Sign in"}
               </ClickButton>
             </form>
 
@@ -342,6 +351,7 @@ export function AuthScreen({
               </Link>
             </p>
           </div>
+          {personalWelcome ? <PersonalDedication className="px-2 pb-2 text-xs" /> : null}
         </section>
 
         {/* Trending panel — what the catalogue is playing right now. */}

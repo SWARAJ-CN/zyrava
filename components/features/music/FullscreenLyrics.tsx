@@ -1,6 +1,8 @@
 "use client";
 
 import Image from "next/image";
+import dynamic from "next/dynamic";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Minimize2 } from "lucide-react";
@@ -9,6 +11,11 @@ import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import type { Song } from "@/lib/saavn";
 import { formatSeconds } from "@/lib/lyrics";
 import { LyricsPanel } from "./LyricsPanel";
+
+const PersonalLyricsAnimation = dynamic(
+  () => import("./PersonalLyricsAnimation").then((module) => module.PersonalLyricsAnimation),
+  { ssr: false, loading: () => null },
+);
 
 /** Mounted in the app shell so phone/PWA layouts do not need the desktop card. */
 export function LyricsFullscreenOverlay() {
@@ -36,6 +43,7 @@ export function FullscreenLyrics({
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const { personalExperience } = useAuth();
   const { playing, progress, togglePlay, stepTrack } = useMusicPlayer();
   const artwork = song.imageLarge || song.image;
   const elapsed = formatSeconds(Math.floor(progress));
@@ -65,6 +73,7 @@ export function FullscreenLyrics({
         event.preventDefault();
         onClose();
       }}
+      data-personal-lyrics={personalExperience || undefined}
       className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-[#111419] p-0 text-white backdrop:bg-black"
     >
       {/* The artwork itself supplies the palette, including cross-origin covers. */}
@@ -72,7 +81,7 @@ export function FullscreenLyrics({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 overflow-hidden"
       >
-        {artwork ? (
+        {artwork && !personalExperience ? (
           <div
             key={artwork}
             className="absolute -inset-24 opacity-45 blur-[90px] saturate-75"
@@ -88,6 +97,14 @@ export function FullscreenLyrics({
         ) : null}
         <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-black/10" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/15" />
+        {personalExperience ? (
+          <div
+            data-lyrics-hearts
+            className="absolute inset-y-0 right-0 w-full opacity-25 [mask-image:linear-gradient(to_left,black,transparent)] motion-reduce:hidden md:w-[58%] md:opacity-35"
+          >
+            <PersonalLyricsAnimation />
+          </div>
+        ) : null}
       </div>
 
       <div className="relative flex h-full min-h-0 flex-col px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-10 lg:px-[7vw]">

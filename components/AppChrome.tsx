@@ -20,17 +20,17 @@ const AUTH_ROUTES = new Set(["/login", "/register"]);
  */
 export function AppChrome() {
   const pathname = usePathname();
-  const { status } = useAuth();
+  const { status, personalExperience } = useAuth();
   const { isGuest } = useGuestLock();
   if (AUTH_ROUTES.has(pathname) || (status !== "authenticated" && !isGuest)) return null;
   return (
     <>
-      <SideBar />
-      {isGuest ? null : <MixerConsole />}
+      <SideBar key={personalExperience ? "personal" : "standard"} />
+      {isGuest || personalExperience ? null : <MixerConsole />}
       {/* The dock's download button leads here on iOS, where there is no prompt
           for a page to raise — and a guest can still add the app. */}
       <InstallSheet />
-      <ChatPanel />
+      {!personalExperience ? <ChatPanel /> : null}
       <StickyPlayerBar />
       <LyricsFullscreenOverlay />
     </>

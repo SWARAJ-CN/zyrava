@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "@/components/providers/AuthProvider";
+
 import Image from "next/image";
 import { useState } from "react";
 import { Icon } from "@/components/ui/icons";
@@ -28,6 +30,7 @@ import { cn } from "@/lib/cn";
  * and the 8D / 3D / surround space modes.
  */
 export function StickyPlayerBar() {
+  const { personalExperience } = useAuth();
   const [eqOpen, setEqOpen] = useState(false);
   const [heavyPending, setHeavyPending] = useState<string | null>(null);
   const {
@@ -243,7 +246,7 @@ export function StickyPlayerBar() {
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
         >
           {/* Equalizer + space panel floats above the bar. */}
-          {eqOpen ? (
+          {eqOpen && !personalExperience ? (
             <div className="glass pointer-events-auto mb-2 ml-auto max-h-[min(72vh,31rem)] w-full max-w-2xl overflow-y-auto rounded-t-field border border-b-0 border-separator px-4 pb-3 pt-3 shadow-pop sm:border-b-0 lg:max-w-3xl lg:rounded-b-none lg:border-b-0">
               <div className="flex items-center justify-between gap-2 pb-2.5">
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -345,7 +348,14 @@ export function StickyPlayerBar() {
             </div>
           ) : null}
 
-          <div className="glass pointer-events-auto relative rounded-t-field border border-b-0 border-separator p-2.5 shadow-pop sm:rounded-none sm:border-b-0 sm:p-0 lg:rounded-b-none lg:border-b-0">
+          <div
+            className={cn(
+              "glass pointer-events-auto relative border border-separator p-2.5 shadow-pop sm:p-0",
+              personalExperience
+                ? "rounded-3xl"
+                : "rounded-t-field border-b-0 sm:rounded-none sm:border-b-0 lg:rounded-b-none lg:border-b-0"
+            )}
+          >
             {/* ── Phone: row 1 = cover · title · play ───────────────── */}
             <div className="flex items-center gap-2.5 sm:hidden">
               <button
@@ -389,7 +399,7 @@ export function StickyPlayerBar() {
             {/* ── Phone: row 2 = seek + EQ ─────────────────────────── */}
             <div className="mt-2 flex items-center gap-2 sm:hidden">
               {seekRow}
-              <button
+              {!personalExperience ? (<button
                 type="button"
                 title="Equalizer"
                 aria-label="Equalizer"
@@ -404,7 +414,7 @@ export function StickyPlayerBar() {
               >
                 <Icon name="sliders" className="size-3.5" />
                 EQ
-              </button>
+              </button>) : null}
             </div>
             {playerError ? (
               <p className="mt-1 truncate text-[11px] text-danger sm:hidden">{playerError}</p>
@@ -505,7 +515,7 @@ export function StickyPlayerBar() {
                 >
                   <Icon name="sidebar" className="size-4" />
                 </button>
-                <button
+                {!personalExperience ? (<button
                   type="button"
                   title="Open the sound console"
                   aria-label="Open the full-screen sound console"
@@ -518,8 +528,8 @@ export function StickyPlayerBar() {
                   className="hidden size-9 flex-none place-items-center rounded-full border border-separator text-muted transition-colors hover:text-foreground xl:grid"
                 >
                   <Icon name="sliders" className="size-4" />
-                </button>
-                <button
+                </button>) : null}
+                {!personalExperience ? (<button
                   type="button"
                   title="Equalizer & space"
                   aria-label="Equalizer and space modes"
@@ -534,7 +544,7 @@ export function StickyPlayerBar() {
                 >
                   <Icon name="sliders" className="size-3.5" />
                   EQ
-                </button>
+                </button>) : null}
                 <button
                   type="button"
                   aria-label={muted ? "Unmute" : "Mute"}

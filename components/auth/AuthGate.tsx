@@ -2,13 +2,16 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 
+import { PersonalDedication } from "@/components/PersonalDedication";
+
 const PUBLIC_ROUTES = new Set(["/login", "/register"]);
 
-/* Loaded only once the wait is long enough to be a sleeping server; a warm boot
-   never asks for the player, its WASM or the animation file. */
+/* The personal welcome uses the player immediately. Standard accounts load it
+   only when the wait is long enough to indicate a sleeping server. */
 const WakeAnimation = dynamic(
   () => import("@/components/auth/WakeAnimation").then((module) => module.WakeAnimation),
   { ssr: false, loading: () => null }
@@ -52,8 +55,10 @@ const SPLASH_GLYPHS: ReactNode[] = [
 export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { status, expired } = useAuth();
+  const { status, expired, personalExperience, returningPersonalEmail } = useAuth();
+  const personalWelcome = personalExperience || (status !== "authenticated" && !!returningPersonalEmail);
   const [waking, setWaking] = useState(false);
+  const reducedMotion = useReducedMotion();
   const isPublic = PUBLIC_ROUTES.has(pathname);
   /* A stranger is a guest with the trial still running. Someone this device
      has held an account for is a member whose session went stale, and gets the
@@ -78,10 +83,24 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [status]);
 
   if (isPublic) return <>{children}</>;
-  if (status === "authenticated" || isGuest) return <>{children}</>;
+  const ready = status === "authenticated" || isGuest;
 
+  // Mount the app immediately beneath the departing splash. No artificial
+  // loading delay, page transform, or pointer-blocking overlay during handoff.
   return (
-    <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-background px-6 text-foreground">
+    <>
+      {ready ? children : null}
+      <AnimatePresence initial={false}>
+        {!ready ? (
+          <motion.div
+            key="session-loading"
+            className="pointer-events-none fixed inset-0 z-[200] overflow-y-auto"
+            initial={false}
+            exit={{ opacity: 0 }}
+            transition={{ duration: personalWelcome && !reducedMotion ? 0.38 : 0 }}
+            data-session-splash
+          >
+    <div data-personal-welcome={personalWelcome || undefined} className="relative grid min-h-dvh place-items-center overflow-hidden bg-background px-6 text-foreground">
       {/* Keyframes for Zepto jump & rotating green/black background aura */}
       <style jsx>{`
         @keyframes zepto-jump {
@@ -112,7 +131,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         aria-hidden
         className="pointer-events-none absolute left-1/2 top-1/2 size-[38rem] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.18] blur-3xl"
         style={{
-          background: "conic-gradient(from 0deg at 50% 50%, #10b981 0deg, #022c22 120deg, #000000 240deg, #10b981 360deg)",
+          background: personalWelcome ? "radial-gradient(ellipse, #88374c, #70432f 60%, transparent)" : "conic-gradient(from 0deg at 50% 50%, #10b981 0deg, #022c22 120deg, #000000 240deg, #10b981 360deg)",
           animation: "bg-rotate 10s linear infinite",
         }}
       />
@@ -124,21 +143,39 @@ export function AuthGate({ children }: { children: ReactNode }) {
           aria-busy="true"
           className="relative flex w-full max-w-[19rem] flex-col items-center gap-7 text-center"
         >
-          <WakeAnimation />
+          <WakeAnimation personal={personalWelcome} />
 
           <div className="space-y-1.5">
             <p className="text-sm font-semibold uppercase tracking-[0.32em] text-foreground">
               ZYRAVA
             </p>
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-brand">
-              Waking up the server
+              {personalWelcome ? "Waking up your music, Baava" : "Waking up the server"}
             </p>
           </div>
 
           <p className="text-[11px] leading-relaxed text-faint-foreground">
-            This instance had gone quiet. The first answer takes a few seconds — the app itself is
-            already on your screen.
+            {personalWelcome ? "Just a little moment, Vimitha. Your listening room is getting ready." : "This instance had gone quiet. The first answer takes a few seconds — the app itself is already on your screen."}
           </p>
+        </div>
+      ) : personalWelcome ? (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          className="relative flex w-full max-w-[19rem] flex-col items-center gap-5 text-center"
+        >
+          <div aria-hidden className="size-44 shrink-0">
+            <WakeAnimation personal phase="initial" />
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-semibold tracking-wide text-foreground">
+              Welcome back, Vimitha
+            </p>
+            <p className="text-xs leading-relaxed text-muted">
+              Your music is getting ready, Baava.
+            </p>
+          </div>
         </div>
       ) : (
       <div
@@ -190,7 +227,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
             ZYRAVA
           </p>
           <p className="text-[10px] uppercase tracking-[0.24em] text-muted">
-            Listening studio
+            {personalWelcome ? "Welcome back, Vimitha" : "Listening studio"}
           </p>
         </div>
 
@@ -200,11 +237,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
             <span className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-accent motion-safe:animate-[splash-sweep_1.4s_ease-in-out_infinite]" />
           </span>
           <p className="text-[11px] tracking-wide text-faint-foreground">
-            Hey it&apos;s you Hmmm....?
+            {personalWelcome ? "Your music is getting ready, Baava." : <>Hey it&apos;s you Hmmm....?</>}
           </p>
         </div>
       </div>
       )}
+      {personalWelcome ? <PersonalDedication className="absolute inset-x-0 bottom-7 px-6 text-[11px]" /> : null}
     </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </>
   );
 }

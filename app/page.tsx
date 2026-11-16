@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { Pagination, PageHeader, SegmentedControl } from "@/components/ui/Controls";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { PersonalDedication } from "@/components/PersonalDedication";
+import { Pagination, SegmentedControl } from "@/components/ui/Controls";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, Notice, Skeleton, Spinner } from "@/components/ui/Feedback";
@@ -10,7 +12,7 @@ import { Icon } from "@/components/ui/icons";
 import { RegionCarousel } from "@/components/features/music/RegionCarousel";
 import { NowPlayingPanel } from "@/components/features/music/NowPlayingPanel";
 import { songHueSeed } from "@/components/features/music/BeatGlow";
-import { BeatWordmark } from "@/components/features/music/BeatWordmark";
+import { HomeHeader } from "@/components/features/music/HomeHeader";
 import { SearchWithSuggestions } from "@/components/features/music/SearchWithSuggestions";
 import { PlaylistsView } from "@/components/features/music/PlaylistsView";
 import { LikedView } from "@/components/features/music/LikedView";
@@ -96,6 +98,7 @@ type PagePayload = { songs?: Song[]; total?: number };
 type PageResult = PagePayload | { error: string } | null;
 
 export default function MusicPage() {
+  const { personalExperience } = useAuth();
   const [input, setInput] = useState("");
   const [term, setTerm] = useState<string>(REGIONS[0].label);
   /** Pages skipped before the feed opens — drawn once per visit. */
@@ -699,7 +702,8 @@ export default function MusicPage() {
     <div
       id="top"
       className={cn(
-        "mx-auto w-full max-w-screen-2xl px-4 pb-24 pt-5 sm:px-6 sm:pt-7 lg:px-10",
+        "w-full px-4 pb-24 pt-5 sm:px-6 sm:pt-7 lg:px-10",
+        personalExperience ? "personal-home mx-0 max-w-none" : "mx-auto max-w-screen-2xl",
         "dock-offset",
         !sidebarWide && "dock-offset--rail",
         nowPlayingOpen && "xl:pe-[24rem]"
@@ -708,36 +712,13 @@ export default function MusicPage() {
       {/* Spotify-style side preview — fixed, wide screens only. */}
       <NowPlayingPanel />
 
-      {/* Oversized wordmark — the song's RGB inside the letters, flooding up
-          from the floor of the text on every beat. Absolutely placed so it
-          owns no layout space behind the header. */}
-      <div className="relative">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-5 end-0 flex select-none overflow-hidden"
-        >
-          <BeatWordmark
-            getAnalyser={getAnalyser}
-            playing={playing}
-            hueSeed={songHueSeed(activeId)}
-            className="text-[clamp(5rem,15vw,13rem)] font-black leading-none tracking-tighter"
-          >
-            ZYRAVA
-          </BeatWordmark>
-        </div>
-        <PageHeader
-          title="ZYRAVA"
-          leading={
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(true)}
-              aria-label="Open the dock"
-              className="grid size-10 flex-none place-items-center rounded-xl border border-separator bg-surface text-foreground shadow-field transition-colors hover:text-brand md:hidden"
-            >
-              <Icon name="menu" className="size-5" />
-            </button>
-          }
-          actions={
+      <HomeHeader
+        personal={personalExperience}
+        getAnalyser={getAnalyser}
+        playing={playing}
+        hueSeed={songHueSeed(activeId)}
+        onOpenDock={() => setMobileNavOpen(true)}
+        search={
             <SearchWithSuggestions
               value={input}
               onChange={setInput}
@@ -749,16 +730,15 @@ export default function MusicPage() {
                   .getElementById("library-list")
                   ?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
-              className="w-full sm:w-96"
+              className={personalExperience ? "w-full" : "w-full sm:w-96"}
             />
-          }
-        />
-      </div>
+        }
+      />
 
       {/* Primary home tabs — everything below switches with them. */}
       <nav
         aria-label="Home sections"
-        className="mt-6 flex flex-nowrap items-end gap-1 overflow-x-auto border-b border-separator [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="home-tabs mt-6 flex flex-nowrap items-end gap-1 overflow-x-auto border-b border-separator [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {HOME_TABS.map((entry) => {
           const active = homeTab === entry.value;
@@ -777,14 +757,14 @@ export default function MusicPage() {
               {active ? (
                 <motion.span
                   layoutId="home-tab-underline"
-                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent"
+                  className="home-tab-indicator absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent"
                   transition={{ type: "spring", stiffness: 480, damping: 36 }}
                 />
               ) : null}
             </button>
           );
         })}
-        <span className="ms-auto hidden shrink-0 pb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-faint-foreground sm:block">
+        <span className="home-tab-caption ms-auto hidden shrink-0 pb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-faint-foreground sm:block">
           {TAB_EYEBROW[homeTab]}
         </span>
       </nav>
@@ -801,7 +781,7 @@ export default function MusicPage() {
       {/* Multi-check filter bar — the top section's quick pickers. Languages
           narrow the catalogue; vibes retune the queries, then the list is
           ranked so vibe-fitting songs lead. */}
-      <div className="mt-4 rounded-xl border border-separator bg-surface shadow-field">
+      <div className="home-filters mt-4 rounded-xl border border-separator bg-surface shadow-field">
         <div className="flex items-center justify-between gap-3 px-3.5 pt-3 pb-1">
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
             Filters
@@ -1131,7 +1111,7 @@ export default function MusicPage() {
                       onClick={() => playFromPage(songIndex)}
                       aria-label={`Play ${song.title} by ${song.artist}`}
                       className={cn(
-                        "group flex min-h-[68px] w-full items-center gap-3 rounded-lg pe-28 ps-2 py-2 text-start transition-all duration-150 hover:bg-surface-secondary sm:ps-3",
+                        "home-song-row group flex min-h-[68px] w-full items-center gap-3 rounded-lg pe-28 ps-2 py-2 text-start transition-all duration-150 hover:bg-surface-secondary sm:ps-3",
                         active && "bg-accent-soft"
                       )}
                     >
@@ -1330,14 +1310,14 @@ export default function MusicPage() {
       {/* Label line — the quiet footer, Zomato style. Large but faint, so it
           reads like the wordmark watermark at the top of the page. */}
       <footer className="mt-16 overflow-hidden px-2 pb-4 text-center sm:mt-20">
-        <p className="text-balance text-[clamp(1.5rem,6.5vw,5rem)] font-black leading-[1.05] tracking-tighter text-foreground/[0.07]">
+        {personalExperience ? <PersonalDedication className="mx-auto max-w-full" /> : (<p className="text-balance text-[clamp(1.5rem,6.5vw,5rem)] font-black leading-[1.05] tracking-tighter text-foreground/[0.07]">
           Crafted with{" "}
           <Icon
             name="heart"
             className="inline-block size-[0.52em] fill-danger align-baseline text-danger"
           />{" "}
           <span className="whitespace-nowrap">in Kochi, India</span>
-        </p>
+        </p>)}
       </footer>
         </motion.div>
       ) : homeTab === "playlists" ? (

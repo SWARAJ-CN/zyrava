@@ -142,7 +142,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
     getGraphInfo,
   } = useMusicPlayer();
   const { resolved, toggle } = useTheme();
-  const { user, status: authStatus, logout } = useAuth();
+  const { user, status: authStatus, logout, personalExperience } = useAuth();
   const { requireAuth } = useGuestLock();
   const { canInstall, install } = usePwa();
   const accountName = user?.name ?? user?.email ?? user?.phone ?? "Account";
@@ -217,7 +217,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
                 ZYRAVA
               </p>
               <p className="mt-1.5 truncate text-[9px] font-medium uppercase leading-none tracking-[0.2em] text-muted">
-                Audio studio
+                {personalExperience ? "Your listening room" : "Audio studio"}
               </p>
             </div>
             <DockIcon label={mobile ? "Close the dock" : "Collapse dock (M)"} onClick={closeDock}>
@@ -245,7 +245,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
           wide ? "gap-0.5 px-2.5 py-2.5" : "items-center gap-1 px-2 py-3"
         )}
       >
-        {TABS.map((entry) => {
+        {TABS.filter((entry) => !personalExperience || entry.value === "browse" || entry.value === "library").map((entry) => {
           const active = entry.value === "chat" ? chatOpen : tab === entry.value;
           return (
             <button
@@ -355,7 +355,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
             </div>
           ) : null}
 
-          {tab === "dashboard" ? (
+          {!personalExperience && tab === "dashboard" ? (
             <div className="flex flex-col gap-5">
               <section>
                 <SectionLabel>This session</SectionLabel>
@@ -552,7 +552,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
             </div>
           ) : null}
 
-          {tab === "mixer" ? (
+          {!personalExperience && tab === "mixer" ? (
             <div className="flex flex-col gap-5">
               <section className="flex flex-col gap-2.5">
                 <div className="flex items-baseline justify-between gap-2 px-2.5">
@@ -805,13 +805,13 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
                     <Icon name="download" className="size-4" strokeWidth={1.9} />
                   </DockIcon>
                 ) : null}
-                <DockIcon label={themeLabel} onClick={toggle}>
+                {!personalExperience ? <DockIcon label={themeLabel} onClick={toggle}>
                   <Icon
                     name={resolved === "dark" ? "sun" : "moon"}
                     className="size-4"
                     strokeWidth={1.9}
                   />
-                </DockIcon>
+                </DockIcon> : null}
               </div>
             </div>
           </>
@@ -866,13 +866,13 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
                 <Icon name="download" className="size-4" strokeWidth={1.9} />
               </DockIcon>
             ) : null}
-            <DockIcon label={themeLabel} onClick={toggle}>
+            {!personalExperience ? <DockIcon label={themeLabel} onClick={toggle}>
               <Icon
                 name={resolved === "dark" ? "sun" : "moon"}
                 className="size-4"
                 strokeWidth={1.9}
               />
-            </DockIcon>
+            </DockIcon> : null}
           </>
         )}
       </div>

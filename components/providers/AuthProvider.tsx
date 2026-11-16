@@ -5,8 +5,10 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -19,6 +21,8 @@ import {
   type RegisterInput,
 } from "@/lib/api";
 
+import { readPersonalWelcome, subscribePersonalWelcome, rememberPersonalWelcome } from "@/lib/personal-welcome";
+
 type AuthStatus = "loading" | "authenticated" | "anonymous";
 
 interface AuthContextValue {
@@ -26,6 +30,8 @@ interface AuthContextValue {
   status: AuthStatus;
   /** A member whose session has run out, as opposed to someone new. */
   expired: boolean;
+  personalExperience: boolean;
+  returningPersonalEmail: string | null;
   login: (input: LoginInput) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
@@ -62,6 +68,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [expired, setExpired] = useState(false);
+  const returningPersonalEmail = useSyncExternalStore(subscribePersonalWelcome, readPersonalWelcome, () => null);
+  const personalExperience = status === "authenticated" && user?.experience === "brown-burgundy";
+
+  // Scope tokens to this signed-in account, including portals; never persist them.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (personalExperience) root.dataset.experience = "brown-burgundy";
+    else delete root.dataset.experience;
+    return () => { delete root.dataset.experience; };
+  }, [personalExperience]);
 
   // Recover a session from the httpOnly refresh cookie on first paint.
   useEffect(() => {
@@ -70,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((session) => {
         if (!alive) return;
         if (session) {
+          rememberPersonalWelcome(session.user);
           setUser(session.user);
           setStatus("authenticated");
         } else {
@@ -89,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (input: LoginInput) => {
     const nextUser = await loginRequest(input);
+    rememberPersonalWelcome(nextUser);
     setUser(nextUser);
     setStatus("authenticated");
     setExpired(false);
@@ -97,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(async (input: RegisterInput) => {
     const nextUser = await registerRequest(input);
+    rememberPersonalWelcome(nextUser);
     setUser(nextUser);
     setStatus("authenticated");
     setExpired(false);
@@ -113,8 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, status, expired, login, register, logout }),
-    [user, status, expired, login, register, logout]
+    () => ({ user, status, expired, personalExperience, returningPersonalEmail, login, register, logout }),
+    [user, status, expired, personalExperience, returningPersonalEmail, login, register, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

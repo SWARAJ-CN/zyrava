@@ -25,6 +25,7 @@ export interface AuthUser {
   email: string | null;
   phone: string | null;
   createdAt?: string;
+  experience?: "standard" | "brown-burgundy";
 }
 
 interface SessionPayload {

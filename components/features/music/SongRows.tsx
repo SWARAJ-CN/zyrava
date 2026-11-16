@@ -214,7 +214,7 @@ export function SongRows({
           <div
             key={song.id}
             className={cn(
-              "group flex items-center transition-colors hover:bg-surface-secondary",
+              "home-song-row group flex items-center transition-colors hover:bg-surface-secondary",
               table ? "gap-3 rounded-lg px-2 py-1.5" : "gap-1 rounded-lg px-2 py-1.5",
               table && active && "bg-accent-soft"
             )}

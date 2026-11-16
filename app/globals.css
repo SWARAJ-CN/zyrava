@@ -664,3 +664,213 @@ button[type="button"] {
     animation: none;
   }
 }
+
+
+/* Account-scoped palette. Authentication owns this attribute; sign-out removes it. */
+:root[data-experience="brown-burgundy"],
+[data-personal-welcome="true"] {
+  color-scheme: dark;
+  --background: #211714;
+  --foreground: #f5e5d9;
+  --surface: #2b1d19;
+  --surface-foreground: #f5e5d9;
+  --surface-secondary: #37241f;
+  --surface-secondary-foreground: #f5e5d9;
+  --surface-tertiary: #493029;
+  --surface-tertiary-foreground: #f5e5d9;
+  --overlay: #30201c;
+  --overlay-foreground: #f5e5d9;
+  --muted: #c4a99b;
+  --accent: #88374c;
+  --accent-hover: #a3455e;
+  --accent-foreground: #fff1e7;
+  --accent-soft: #47232a;
+  --accent-soft-foreground: #e6acba;
+  --accent-soft-hover: #5b2c37;
+  --color-brand: #df9fb0;
+  --brand: #df9fb0;
+  --default: #493029;
+  --default-hover: #583a31;
+  --default-foreground: #f5e5d9;
+  --field-background: #2b1d19;
+  --field-foreground: #f5e5d9;
+  --field-placeholder: #c4a99b;
+  --field-border: #69473d;
+  --field-border-hover: #946558;
+  --field-border-focus: #df9fb0;
+  --border: #654339;
+  --border-secondary: #755045;
+  --border-tertiary: #946558;
+  --separator: #54372f;
+  --separator-secondary: #654339;
+  --segment: #613b37;
+  --segment-foreground: #f5e5d9;
+  --focus: #e6acba;
+  --link: #e6acba;
+  --selection: #88374c;
+  --selection-foreground: #fff1e7;
+  --dock-bg: #2b1c19;
+  --dock-hover: #422b25;
+  --dock-active: #562633;
+  --dock-line: #54372f;
+  --scrollbar-thumb: #815647;
+}
+
+:root[data-experience="brown-burgundy"] body {
+  background: radial-gradient(ellipse at top right, #45212c 0, transparent 60%), #211714;
+}
+
+:root[data-experience="brown-burgundy"] .beat-glow-a,
+:root[data-experience="brown-burgundy"] .beat-glow-b,
+:root[data-experience="brown-burgundy"] .beat-glow-c {
+  background: radial-gradient(circle, #88374c, #70432f 65%, transparent);
+  animation: none;
+}
+
+:root[data-experience="brown-burgundy"] [data-personal-lyrics] {
+  background: radial-gradient(ellipse at top right, #713344, #37231d 60%, #211714);
+}
+
+:root[data-experience="brown-burgundy"] .text-brand,
+:root[data-experience="brown-burgundy"] .text-accent,
+[data-personal-welcome="true"] .text-brand,
+[data-personal-welcome="true"] .text-accent {
+  color: #e6acba;
+}
+
+
+/* Wordmarks size against their own header, not the viewport behind the dock. */
+.home-header-standard { position: relative; container-type: inline-size; }
+.home-wordmark-backdrop {
+  position: absolute; inset-block-start: -1.25rem; inset-inline: 0;
+  display: flex; justify-content: flex-end; pointer-events: none; user-select: none;
+}
+.home-wordmark {
+  flex: none; width: max-content; white-space: nowrap;
+  font-size: clamp(3rem, 17cqw, 13rem);
+  padding-inline-end: 0.06em;
+}
+
+/* Warm liquid-glass surfaces belong only to the personalized account. */
+:root[data-experience="brown-burgundy"] {
+  --home-glass: linear-gradient(140deg, rgb(255 233 219 / 10%), rgb(255 233 219 / 2%) 42%, rgb(177 75 108 / 12%)), rgb(49 29 26 / 62%);
+  --home-glass-border: rgb(255 227 213 / 17%);
+  --home-glass-shadow: inset 0 1px 0 rgb(255 242 230 / 13%), inset 0 -1px 0 rgb(255 242 230 / 3%), 0 18px 45px rgb(15 5 8 / 18%);
+}
+:root[data-experience="brown-burgundy"] body {
+  background:
+    radial-gradient(ellipse at 86% 5%, rgb(153 57 86 / 42%), transparent 48%),
+    radial-gradient(ellipse at 12% 55%, rgb(150 101 65 / 26%), transparent 46%),
+    linear-gradient(145deg, #281a16, #27151c 65%, #38231b);
+  background-attachment: fixed;
+}
+.home-glass-header {
+  position: relative; container-type: inline-size;
+  padding: 1rem 1.25rem;
+}
+:root[data-experience="brown-burgundy"] :is(.home-glass-header, .app-card, .home-filters, .home-tabs, aside[aria-label="Now playing"], aside[aria-label="ZYRAVA dock"], .glass) {
+  border: 1px solid var(--home-glass-border);
+  background: var(--home-glass);
+  box-shadow: var(--home-glass-shadow);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+}
+:root[data-experience="brown-burgundy"] :is(.home-glass-header, .app-card, .home-filters) { border-radius: 1.75rem; }
+:root[data-experience="brown-burgundy"] aside[aria-label="ZYRAVA dock"] { border-radius: 0 1.5rem 1.5rem 0; }
+.home-personal-watermark {
+  position: absolute; inset: 0; overflow: hidden; border-radius: inherit;
+  display: flex; align-items: center; justify-content: flex-end; padding-inline: 1rem;
+  pointer-events: none; user-select: none; opacity: 0.045;
+}
+.home-personal-watermark > span {
+  font-size: clamp(2.5rem, 15cqw, 8rem); font-weight: 900;
+  line-height: 1; letter-spacing: -0.06em; white-space: nowrap;
+}
+:root[data-experience="brown-burgundy"] .beat-wordmark-rgb {
+  background-image: linear-gradient(to top, #b65676, #f3cbb5, #b48062);
+}
+.home-header-bottom { position: relative; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.home-header-identity { display: flex; align-items: center; gap: 0.75rem; flex: 1 1 15rem; min-width: 0; }
+.home-header-animation { width: 4.5rem; height: 4.5rem; flex: none; pointer-events: none; }
+.home-header-search { flex: 1 1 20rem; max-width: 36rem; min-width: 0; }
+.personal-dedication { font-size: clamp(0.625rem, 2.5vw, 0.875rem); }
+:root[data-experience="brown-burgundy"] .home-tabs {
+  align-items: center; gap: 0.375rem; padding: 0.5rem;
+  border-radius: 1.25rem; margin-top: 1.25rem;
+}
+:root[data-experience="brown-burgundy"] .home-tabs > button { height: 2.75rem; margin: 0; border-radius: 0.875rem; }
+:root[data-experience="brown-burgundy"] .home-tabs > button[aria-current="true"] {
+  color: #fff1e7;
+  background: linear-gradient(135deg, rgb(172 82 111 / 82%), rgb(112 46 66 / 88%));
+  box-shadow: inset 0 1px 0 rgb(255 235 225 / 25%), 0 4px 12px rgb(24 6 13 / 20%);
+}
+:root[data-experience="brown-burgundy"] :is(.home-tab-indicator, .home-tab-caption) { display: none; }
+:root[data-experience="brown-burgundy"] .home-filters { padding: 0.5rem; }
+:root[data-experience="brown-burgundy"] .home-filters button {
+  box-shadow: inset 0 1px 0 rgb(255 233 221 / 8%);
+}
+:root[data-experience="brown-burgundy"] .home-song-row {
+  border: 1px solid rgb(255 231 217 / 5%);
+  background-image: linear-gradient(120deg, rgb(255 231 217 / 4%), transparent 65%);
+  border-radius: 1rem;
+}
+:root[data-experience="brown-burgundy"] .home-song-row:hover {
+  background-color: rgb(255 231 217 / 8%);
+  border-color: rgb(255 231 217 / 15%);
+}
+:root[data-experience="brown-burgundy"] .music-search input {
+  background: rgb(255 229 215 / 5%);
+  border: 1px solid rgb(255 229 215 / 20%);
+  box-shadow: inset 0 1px 0 rgb(255 244 232 / 10%);
+  border-radius: 1rem;
+}
+:root[data-experience="brown-burgundy"] .music-search > div[class*="absolute"] {
+  background: #362421; border-color: var(--home-glass-border);
+  box-shadow: var(--home-glass-shadow);
+}
+@media (max-width: 47.99rem) {
+  .home-header-search { flex-basis: 100%; max-width: none; }
+  .home-glass-header { padding: 0.875rem; }
+  .home-header-identity { flex-basis: 0; gap: 0.5rem; }
+  .home-header-animation { width: 3rem; height: 3rem; }
+  :root[data-experience="brown-burgundy"] :is(.home-glass-header, .app-card, .home-filters) { border-radius: 1.25rem; }
+  :root[data-experience="brown-burgundy"] :is(.app-card, .home-filters) {
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  :root[data-experience="brown-burgundy"] :is(.home-glass-header, .app-card, .home-filters, .home-tabs, aside[aria-label="Now playing"], aside[aria-label="ZYRAVA dock"], .glass) {
+    background-color: #382521;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-experience="brown-burgundy"] :is(.home-glass-header, .app-card, .home-filters, .home-tabs, aside[aria-label="Now playing"], aside[aria-label="ZYRAVA dock"], .glass) {
+    background: #382521; backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+}
+
+
+/* One entrance on mount; opacity keeps fixed players anchored to the viewport.
+   Small header details move once, without animating expensive glass filters. */
+@keyframes personal-app-arrival {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes personal-detail-arrival {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-experience="brown-burgundy"] .personal-home {
+    animation: personal-app-arrival 480ms ease-out backwards;
+  }
+  :root[data-experience="brown-burgundy"] .home-header-bottom {
+    animation: personal-detail-arrival 600ms cubic-bezier(0.22, 1, 0.36, 1) 130ms backwards;
+  }
+  :root[data-experience="brown-burgundy"] .home-tabs {
+    animation: personal-app-arrival 500ms ease-out 180ms backwards;
+  }
+  :root[data-experience="brown-burgundy"] aside[aria-label="ZYRAVA dock"] {
+    animation: personal-app-arrival 500ms ease-out backwards;
+  }
+}

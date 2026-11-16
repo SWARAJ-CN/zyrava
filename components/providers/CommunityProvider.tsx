@@ -108,9 +108,9 @@ function applyPresence(conversation: ConversationItem, online: boolean, lastSeen
 }
 
 export function CommunityProvider({ children }: { children: ReactNode }) {
-  const { user, status } = useAuth();
+  const { user, status, personalExperience } = useAuth();
   const toast = useToast();
-  const authenticated = status === "authenticated" && !!user;
+  const authenticated = status === "authenticated" && !!user && !personalExperience;
 
   const [chatOpen, setChatOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -137,7 +137,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
    * account hides the old member's data immediately without a reset pass.
    */
   const [ownerId, setOwnerId] = useState<string | null>(null);
-  const currentId = status === "authenticated" ? user?.id ?? null : null;
+  const currentId = authenticated ? user?.id ?? null : null;
   const ready = currentId !== null && ownerId === currentId;
 
   /*
@@ -145,7 +145,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
    * instead of closing over a snapshot — otherwise a re-render would either
    * stale the handler or force a resubscribe mid-thread.
    */
-  const userIdRef = useRef<string | null>(user?.id ?? null);
+  const userIdRef = useRef<string | null>(currentId);
   const conversationsRef = useRef<ConversationItem[]>([]);
   const chatOpenRef = useRef(chatOpen);
   const activeIdRef = useRef<string | null>(activeId);
@@ -154,8 +154,8 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
   const searchTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    userIdRef.current = user?.id ?? null;
-  }, [user?.id]);
+    userIdRef.current = currentId;
+  }, [currentId]);
   useEffect(() => {
     chatOpenRef.current = chatOpen;
   }, [chatOpen]);

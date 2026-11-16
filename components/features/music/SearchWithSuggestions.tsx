@@ -80,7 +80,7 @@ export function SearchWithSuggestions({
   return (
     <div
       ref={rootRef}
-      className={cn("relative", className)}
+      className={cn("music-search relative", className)}
       onKeyDown={(event) => {
         if (event.key === "Escape") setOpen(false);
         if (event.key === "Enter" && query.length >= 2) {

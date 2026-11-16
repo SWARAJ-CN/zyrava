@@ -11,13 +11,21 @@ import { DotLottieReact } from "@lottiefiles/dotlottie-react";
  */
 DotLottie.setWasmUrl("/animations/dotlottie-player-0.82.1.wasm");
 
-export function WakeAnimation() {
+export function WakeAnimation({ personal = false, phase = "waking" }: {
+  personal?: boolean;
+  phase?: "initial" | "waking";
+}) {
+  const src = personal
+    ? phase === "initial"
+      ? "/animations/personal-welcome-0bf92b1d.lottie"
+      : "/animations/server-wake-8264bd03.lottie"
+    : "/animations/server-wake.lottie";
   return (
     <DotLottieReact
-      src="/animations/server-wake.lottie"
+      src={src}
       loop
       autoplay
-      style={{ width: "8.5rem", height: "8.5rem" }}
+      style={{ width: phase === "initial" ? "11rem" : "8.5rem", height: phase === "initial" ? "11rem" : "8.5rem" }}
     />
   );
 }

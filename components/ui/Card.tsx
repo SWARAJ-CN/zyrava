@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 
 export function Card({ className, children, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <HeroCard className={cn("gap-0 p-0", className)} {...props}>
+    <HeroCard className={cn("app-card gap-0 p-0", className)} {...props}>
       {children ?? null}
     </HeroCard>
   );

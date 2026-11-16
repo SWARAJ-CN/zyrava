@@ -15,6 +15,7 @@ import { searchSongs } from "@/lib/saavn";
 import { playbackKind, buildRadioFor, type FetchPool } from "@/lib/taste";
 import { useTaste } from "@/components/providers/TasteProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { useGuestLock } from "@/components/providers/GuestLockProvider";
 import { playPad as firePad, type PadName } from "@/lib/dj/pads";
 
@@ -420,6 +421,7 @@ const SUSPENDS_GRAPH_WHEN_HIDDEN =
  * hand the OS lock screen / mini-player controls.
  */
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
+  const { personalExperience } = useAuth();
   const { openPlaybackUrl } = useOffline();
   const { isGuest, requestLogin } = useGuestLock();
   const [queue, setQueue] = useState<Song[]>([]);
@@ -511,6 +513,30 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const loCutRef = useRef(loCut);
   /** The high-pass node for the low-cut stage in the graph. */
   const loCutNodeRef = useRef<BiquadFilterNode | null>(null);
+
+  useEffect(() => {
+    if (!personalExperience) return;
+    // Batch the account-change reset after the authentication commit.
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setMixerOpenState(false);
+      setEqPreset("Flat");
+      setEqGains([...EQ_PRESETS[0].gains]);
+      setSpatialModeState("off");
+      setFxState({ ...FX_SILENCE });
+      setPreampDbState(0);
+      setBalanceState(0);
+      setRateState(1);
+      setSweepState(0);
+      setSubDbState(0);
+      setCompAmtState(0);
+      setLimiterOnState(false);
+      setLoudnessOnState(false);
+      setLoCutState(false);
+    });
+    return () => { active = false; };
+  }, [personalExperience]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -2219,8 +2245,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setMixerOpen = useCallback((open: boolean) => {
-    setMixerOpenState(open);
-  }, []);
+    setMixerOpenState(open && !personalExperience);
+  }, [personalExperience]);
 
   const setLoCut = useCallback((on: boolean) => {
     setLoCutState(on);
