@@ -2,7 +2,6 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2 } from "lucide-react";
-import { FullscreenLyrics } from "./FullscreenLyrics";
 import { Icon } from "@/components/ui/icons";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import {
@@ -242,6 +241,7 @@ const LyricsRows = memo(function LyricsRows({
    * sub-pixel is the difference between a glide and a staircase. */
   const atRef = useRef(0);
   const frameRef = useRef(0);
+  const sizeRef = useRef({ width: 0, height: 0 });
 
   const timed = body.kind === "timed";
   const lines = timed ? body.lines : [];
@@ -292,12 +292,13 @@ const LyricsRows = memo(function LyricsRows({
       const distance = Math.abs(to - from);
       const settle = instantRef.current || readsSteady() || distance < 3;
       instantRef.current = false;
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      frameRef.current = 0;
       if (settle) {
         paint(to);
         return;
       }
 
-      if (frameRef.current) cancelAnimationFrame(frameRef.current);
       const started = performance.now();
       const ms = Math.min(GLIDE_MS, 240 + distance * 1.5);
       const step = (now: number) => {
@@ -319,7 +320,23 @@ const LyricsRows = memo(function LyricsRows({
   }, [body]);
 
   useEffect(() => {
-    if (timed && !held) move(active);
+    if (!timed || held) return;
+    // A dialog's children mount before showModal gives them a measurable box.
+    // Re-centre after opening, rotation, or a viewport resize as well as line changes.
+    const frame = requestAnimationFrame(() => move(active));
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width === sizeRef.current.width && height === sizeRef.current.height) return;
+      sizeRef.current = { width, height };
+      instantRef.current = true;
+      move(active);
+    });
+    if (boxRef.current) observer.observe(boxRef.current);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, [active, timed, held, move]);
 
   useEffect(
@@ -471,8 +488,7 @@ export function LyricsPanel({
   song: Song;
   immersive?: boolean;
 }) {
-  const { duration, seek } = useMusicPlayer();
-  const [fullscreen, setFullscreen] = useState(false);
+  const { duration, seek, setLyricsFullscreenOpen } = useMusicPlayer();
 
   /* The cache answers while a result is fresh; state only carries what an
    * in-flight request lands with, so switching seeds needs no reset pass. */
@@ -577,7 +593,7 @@ export function LyricsPanel({
           </button>
           <button
             type="button"
-            onClick={() => setFullscreen(true)}
+            onClick={() => setLyricsFullscreenOpen(true)}
             aria-label="Open fullscreen lyrics"
             title="Fullscreen lyrics"
             className="grid size-9 flex-none place-items-center rounded-full text-muted transition-colors hover:bg-surface-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"
@@ -663,11 +679,6 @@ export function LyricsPanel({
           )}
         </div>
       )}
-      {fullscreen && !immersive ? (
-        <FullscreenLyrics song={song} onClose={() => setFullscreen(false)}>
-          <LyricsPanel song={song} immersive />
-        </FullscreenLyrics>
-      ) : null}
     </div>
   );
 }

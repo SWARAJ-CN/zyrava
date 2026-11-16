@@ -7,6 +7,23 @@ import { Minimize2 } from "lucide-react";
 import { Icon } from "@/components/ui/icons";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import type { Song } from "@/lib/saavn";
+import { formatSeconds } from "@/lib/lyrics";
+import { LyricsPanel } from "./LyricsPanel";
+
+/** Mounted in the app shell so phone/PWA layouts do not need the desktop card. */
+export function LyricsFullscreenOverlay() {
+  const { current, lyricsFullscreenOpen, setLyricsFullscreenOpen } =
+    useMusicPlayer();
+  if (!current || !lyricsFullscreenOpen) return null;
+  return (
+    <FullscreenLyrics
+      song={current}
+      onClose={() => setLyricsFullscreenOpen(false)}
+    >
+      <LyricsPanel song={current} immersive />
+    </FullscreenLyrics>
+  );
+}
 
 /** A top-layer reading view; the existing player remains the only audio owner. */
 export function FullscreenLyrics({
@@ -19,18 +36,22 @@ export function FullscreenLyrics({
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const { playing, togglePlay, stepTrack } = useMusicPlayer();
+  const { playing, progress, togglePlay, stepTrack } = useMusicPlayer();
   const artwork = song.imageLarge || song.image;
+  const elapsed = formatSeconds(Math.floor(progress));
 
   useEffect(() => {
     const dialog = dialogRef.current;
     const previousFocus = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
+    const previousGutter = document.documentElement.style.scrollbarGutter;
+    document.documentElement.style.scrollbarGutter = "auto";
     dialog?.showModal();
     document.body.style.overflow = "hidden";
     return () => {
       dialog?.close();
       document.body.style.overflow = previousOverflow;
+      document.documentElement.style.scrollbarGutter = previousGutter;
       if (previousFocus?.isConnected)
         previousFocus.focus({ preventScroll: true });
     };
@@ -73,7 +94,6 @@ export function FullscreenLyrics({
         <div className="flex h-12 shrink-0 justify-end">
           <button
             type="button"
-            autoFocus
             onClick={onClose}
             aria-label="Exit fullscreen lyrics"
             title="Exit fullscreen (Esc)"
@@ -90,21 +110,31 @@ export function FullscreenLyrics({
           >
             {children}
           </section>
-          <div className="relative mx-auto aspect-square w-full max-w-[min(35vw,58dvh)] overflow-hidden rounded-xl bg-white/5 shadow-[0_24px_90px_rgba(0,0,0,0.3)]">
-            {artwork ? (
-              <Image
-                src={artwork}
-                alt={`${song.title} artwork`}
-                fill
-                sizes="(min-width: 1024px) 35vw, 40vw"
-                className="object-cover"
-                priority
-              />
-            ) : (
-              <div className="grid h-full place-items-center">
-                <Icon name="music" className="size-16 text-white/35" />
-              </div>
-            )}
+          <div className="mx-auto w-full max-w-[min(35vw,58dvh)]">
+            <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-white/5 shadow-[0_24px_90px_rgba(0,0,0,0.3)]">
+              {artwork ? (
+                <Image
+                  src={artwork}
+                  alt={`${song.title} artwork`}
+                  fill
+                  sizes="(min-width: 1024px) 35vw, 40vw"
+                  className="object-cover"
+                  priority
+                />
+              ) : (
+                <div className="grid h-full place-items-center">
+                  <Icon name="music" className="size-16 text-white/35" />
+                </div>
+              )}
+            </div>
+            <span
+              role="timer"
+              aria-label="Elapsed playback time"
+              aria-live="off"
+              className="mt-2 block text-left text-xs font-medium tabular-nums text-white/65 sm:text-sm"
+            >
+              {elapsed}
+            </span>
           </div>
         </div>
 

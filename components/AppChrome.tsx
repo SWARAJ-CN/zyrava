@@ -6,6 +6,7 @@ import { MixerConsole } from "@/components/features/music/MixerConsole";
 import { InstallSheet } from "@/components/features/music/InstallSheet";
 import { ChatPanel } from "@/components/features/community/ChatPanel";
 import { StickyPlayerBar } from "@/components/features/music/StickyPlayerBar";
+import { LyricsFullscreenOverlay } from "@/components/features/music/FullscreenLyrics";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useGuestLock } from "@/components/providers/GuestLockProvider";
 
@@ -31,6 +32,7 @@ export function AppChrome() {
       <InstallSheet />
       <ChatPanel />
       <StickyPlayerBar />
+      <LyricsFullscreenOverlay />
     </>
   );
 }

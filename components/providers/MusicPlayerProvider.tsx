@@ -226,6 +226,8 @@ interface MusicPlayerValue {
   /** Spotify-style right-side "Now playing" preview panel. */
   nowPlayingOpen: boolean;
   setNowPlayingOpen: (open: boolean) => void;
+  lyricsFullscreenOpen: boolean;
+  setLyricsFullscreenOpen: (open: boolean) => void;
   eqPreset: string;
   eqGains: number[];
   spatialMode: SpatialMode;
@@ -437,6 +439,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [spatialMode, setSpatialModeState] = useState<SpatialMode>("off");
   const [visualizerReady, setVisualizerReady] = useState(false);
   const [nowPlayingOpen, setNowPlayingOpenState] = useState(false);
+  const [lyricsFullscreenOpen, setLyricsFullscreenOpen] = useState(false);
 
   /* Studio mixer values — refs mirror them so the graph reads the freshest
    * value the moment nodes are built. */
@@ -2636,6 +2639,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       visualizerReady,
       nowPlayingOpen,
       setNowPlayingOpen,
+      lyricsFullscreenOpen,
+      setLyricsFullscreenOpen,
       eqPreset,
       eqGains,
       getAnalyser,
@@ -2710,6 +2715,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       visualizerReady,
       nowPlayingOpen,
       setNowPlayingOpen,
+      lyricsFullscreenOpen,
       eqPreset,
       eqGains,
       getAnalyser,

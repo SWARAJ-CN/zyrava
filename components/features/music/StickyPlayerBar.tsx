@@ -44,6 +44,7 @@ export function StickyPlayerBar() {
     visualizerReady,
     nowPlayingOpen,
     setNowPlayingOpen,
+    setLyricsFullscreenOpen,
     sidebarWide,
     setMixerOpen,
     eqPreset,
@@ -347,35 +348,42 @@ export function StickyPlayerBar() {
           <div className="glass pointer-events-auto relative rounded-t-field border border-b-0 border-separator p-2.5 shadow-pop sm:rounded-none sm:border-b-0 sm:p-0 lg:rounded-b-none lg:border-b-0">
             {/* ── Phone: row 1 = cover · title · play ───────────────── */}
             <div className="flex items-center gap-2.5 sm:hidden">
-              <div className="relative size-11 flex-none overflow-hidden rounded-lg bg-surface-muted">
-                {current.image ? (
-                  <Image
-                    src={current.image}
-                    alt=""
-                    width={96}
-                    height={96}
-                    sizes="48px"
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span className="grid h-full place-items-center text-faint-foreground">
-                    <Icon name="music" className="size-5" />
-                  </span>
-                )}
-                {playing ? renderWave("absolute inset-0", "text-white") : null}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground">{current.title}</p>
-                <p className="truncate text-xs text-muted">
-                  {queueLabel ? `${queueLabel} · ` : ""}
-                  {current.artist}
-                </p>
-                {/* Queue position stays visible on phones too. */}
-                <p className="text-[10px] font-medium tabular-nums text-faint-foreground">
-                  {index + 1} / {queue.length}
-                  {playerError ? " · stream retry needed" : ""}
-                </p>
-              </div>
+              <button
+                type="button"
+                aria-label="Open fullscreen lyrics"
+                onClick={() => setLyricsFullscreenOpen(true)}
+                className="flex min-w-0 flex-1 items-center gap-2.5 text-start rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                <div className="relative size-11 flex-none overflow-hidden rounded-lg bg-surface-muted">
+                  {current.image ? (
+                    <Image
+                      src={current.image}
+                      alt=""
+                      width={96}
+                      height={96}
+                      sizes="48px"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="grid h-full place-items-center text-faint-foreground">
+                      <Icon name="music" className="size-5" />
+                    </span>
+                  )}
+                  {playing ? renderWave("absolute inset-0", "text-white") : null}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-foreground">{current.title}</p>
+                  <p className="truncate text-xs text-muted">
+                    {queueLabel ? `${queueLabel} · ` : ""}
+                    {current.artist}
+                  </p>
+                  {/* Queue position stays visible on phones too. */}
+                  <p className="text-[10px] font-medium tabular-nums text-faint-foreground">
+                    {index + 1} / {queue.length}
+                    {playerError ? " · stream retry needed" : ""}
+                  </p>
+                </div>
+              </button>
               {transport("sm")}
             </div>
             {/* ── Phone: row 2 = seek + EQ ─────────────────────────── */}
@@ -406,7 +414,13 @@ export function StickyPlayerBar() {
                 The seek line lives on its own full-width row underneath. ── */}
             <div className="hidden items-center gap-4 px-3 py-2 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(240px,1fr)_minmax(0,1fr)] lg:gap-6 lg:px-4">
               {/* Zone 1 — track details, right-aligned content edge */}
-              <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                aria-label="Open fullscreen lyrics"
+                title="Open fullscreen lyrics"
+                onClick={() => setLyricsFullscreenOpen(true)}
+                className="flex min-w-0 items-center gap-3 text-start rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
+              >
                 <div className="relative size-12 flex-none overflow-hidden rounded-lg bg-surface-muted lg:size-13">
                   {current.image ? (
                     <Image
@@ -438,7 +452,7 @@ export function StickyPlayerBar() {
                     <p className="truncate text-[11px] text-danger">{playerError}</p>
                   ) : null}
                 </div>
-              </div>
+              </button>
 
               {/* Zone 2 — transport, always visually centred */}
               <div className="flex justify-center">{transport("lg")}</div>
