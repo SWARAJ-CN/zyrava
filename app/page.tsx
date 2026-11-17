@@ -100,7 +100,7 @@ type PagePayload = { songs?: Song[]; total?: number };
 type PageResult = PagePayload | { error: string } | null;
 
 export default function MusicPage() {
-  const { personalExperience } = useAuth();
+  const { personalThemeEnabled } = useAuth();
   const { active:customization } = useCustomization();
   const [input, setInput] = useState("");
   const [term, setTerm] = useState<string>(REGIONS[0].label);
@@ -706,7 +706,7 @@ export default function MusicPage() {
       id="top"
       className={cn(
         "w-full px-4 pb-24 pt-5 sm:px-6 sm:pt-7 lg:px-10",
-        (personalExperience || customization) ? "personal-home mx-0 max-w-none" : "mx-auto max-w-screen-2xl",
+        (personalThemeEnabled || customization) ? "personal-home mx-0 max-w-none" : "mx-auto max-w-screen-2xl",
         "dock-offset",
         !sidebarWide && "dock-offset--rail",
         nowPlayingOpen && "xl:pe-[24rem]"
@@ -716,7 +716,7 @@ export default function MusicPage() {
       <NowPlayingPanel />
 
       <HomeHeader
-        personal={personalExperience}
+        personal={personalThemeEnabled}
         getAnalyser={getAnalyser}
         playing={playing}
         hueSeed={songHueSeed(activeId)}
@@ -733,7 +733,7 @@ export default function MusicPage() {
                   .getElementById("library-list")
                   ?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
-              className={personalExperience || customization ? "w-full" : "w-full sm:w-96"}
+              className={personalThemeEnabled || customization ? "w-full" : "w-full sm:w-96"}
             />
         }
       />
@@ -1313,7 +1313,7 @@ export default function MusicPage() {
       {/* Label line — the quiet footer, Zomato style. Large but faint, so it
           reads like the wordmark watermark at the top of the page. */}
       <footer className="mt-16 overflow-hidden px-2 pb-4 text-center sm:mt-20">
-        {customization ? <CustomizationCredit/> : personalExperience ? <PersonalDedication className="mx-auto max-w-full" /> : (<p className="text-balance text-[clamp(1.5rem,6.5vw,5rem)] font-black leading-[1.05] tracking-tighter text-foreground/[0.07]">
+        {customization ? <CustomizationCredit/> : personalThemeEnabled ? <PersonalDedication className="mx-auto max-w-full" /> : (<p className="text-balance text-[clamp(1.5rem,6.5vw,5rem)] font-black leading-[1.05] tracking-tighter text-foreground/[0.07]">
           Crafted with{" "}
           <Icon
             name="heart"

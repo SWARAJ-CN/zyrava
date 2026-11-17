@@ -152,7 +152,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
     getGraphInfo,
   } = useMusicPlayer();
   const { resolved, toggle } = useTheme();
-  const { user, status: authStatus, logout, personalExperience } = useAuth();
+  const { user, status: authStatus, logout, personalExperience, personalThemeEnabled } = useAuth();
   const { requireAuth } = useGuestLock();
   const { canInstall, install } = usePwa();
   const accountName = user?.name ?? user?.email ?? user?.phone ?? "Account";
@@ -227,7 +227,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
                 ZYRAVA
               </p>
               <p className="mt-1.5 truncate text-[9px] font-medium uppercase leading-none tracking-[0.2em] text-muted">
-                {personalExperience ? "Your listening room" : "Audio studio"}
+                {personalThemeEnabled ? "Your listening room" : "Audio studio"}
               </p>
             </div>
             <DockIcon label={mobile ? "Close the dock" : "Collapse dock (M)"} onClick={closeDock}>

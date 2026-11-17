@@ -30,7 +30,7 @@ import { cn } from "@/lib/cn";
  * and the 8D / 3D / surround space modes.
  */
 export function StickyPlayerBar() {
-  const { personalExperience } = useAuth();
+  const { personalExperience, personalThemeEnabled } = useAuth();
   const [eqOpen, setEqOpen] = useState(false);
   const [heavyPending, setHeavyPending] = useState<string | null>(null);
   const {
@@ -351,7 +351,7 @@ export function StickyPlayerBar() {
           <div
             className={cn(
               "glass pointer-events-auto relative border border-separator p-2.5 shadow-pop sm:p-0",
-              personalExperience
+              personalThemeEnabled
                 ? "rounded-3xl"
                 : "rounded-t-field border-b-0 sm:rounded-none sm:border-b-0 lg:rounded-b-none lg:border-b-0"
             )}

@@ -57,8 +57,8 @@ const SPLASH_GLYPHS: ReactNode[] = [
 export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { status, expired, personalExperience, returningPersonalEmail } = useAuth();
-  const personalWelcome = personalExperience || (status !== "authenticated" && !!returningPersonalEmail);
+  const { status, expired, personalThemeEnabled, returningPersonalEmail } = useAuth();
+  const personalWelcome = personalThemeEnabled || (status !== "authenticated" && !!returningPersonalEmail);
   const { loadingAppearance }=useCustomization();
   const customLoading=!personalWelcome?loadingAppearance:null;
   const [waking, setWaking] = useState(false);

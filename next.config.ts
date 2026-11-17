@@ -37,6 +37,7 @@ const nextConfig: NextConfig = {
      * token. The path is kept identical so the API's own cookie paths match.
      */
     return [
+      { source: "/api/appearance", destination: `${accountApi}/api/appearance` },
       { source: "/api/auth/:path*", destination: `${accountApi}/api/auth/:path*` },
       { source: "/api/library/:path*", destination: `${accountApi}/api/library/:path*` },
       // The community's reads and writes are same-origin for the same reason

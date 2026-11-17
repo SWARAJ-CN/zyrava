@@ -45,7 +45,7 @@ export function FullscreenLyrics({
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const { personalExperience } = useAuth();
+  const { personalThemeEnabled } = useAuth();
   const { active:customization }=useCustomization();
   const { playing, progress, togglePlay, stepTrack } = useMusicPlayer();
   const artwork = song.imageLarge || song.image;
@@ -76,7 +76,7 @@ export function FullscreenLyrics({
         event.preventDefault();
         onClose();
       }}
-      data-personal-lyrics={personalExperience || undefined}
+      data-personal-lyrics={personalThemeEnabled || undefined}
       data-customized-lyrics={!!customization || undefined}
       style={customization?{background:customization.config.background,color:customization.config.text}:undefined}
       className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-[#111419] p-0 text-white backdrop:bg-black"
@@ -86,7 +86,7 @@ export function FullscreenLyrics({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 overflow-hidden"
       >
-        {artwork && !personalExperience && !customization ? (
+        {artwork && !personalThemeEnabled && !customization ? (
           <div
             key={artwork}
             className="absolute -inset-24 opacity-45 blur-[90px] saturate-75"
@@ -105,7 +105,7 @@ export function FullscreenLyrics({
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/15" />
         </> : null}
         {customization ? <CustomizationAnimation id={customization.config.lyricsAnimation} className="absolute inset-y-0 right-0 w-full opacity-25 [mask-image:linear-gradient(to_left,black,transparent)] md:w-[58%]"/> : null}
-        {personalExperience ? (
+        {personalThemeEnabled ? (
           <div
             data-lyrics-hearts
             className="absolute inset-y-0 right-0 w-full opacity-25 [mask-image:linear-gradient(to_left,black,transparent)] motion-reduce:hidden md:w-[58%] md:opacity-35"

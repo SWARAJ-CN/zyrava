@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  apiFetch,
   loginRequest,
   logoutRequest,
   refreshSession,
@@ -30,7 +31,9 @@ interface AuthContextValue {
   status: AuthStatus;
   /** A member whose session has run out, as opposed to someone new. */
   expired: boolean;
+  /** Permanent account restrictions; independent of the appearance toggle. */
   personalExperience: boolean;
+  personalThemeEnabled: boolean;
   returningPersonalEmail: string | null;
   login: (input: LoginInput) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
@@ -68,16 +71,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [expired, setExpired] = useState(false);
-  const returningPersonalEmail = useSyncExternalStore(subscribePersonalWelcome, readPersonalWelcome, () => null);
+  const rememberedPersonalEmail = useSyncExternalStore(subscribePersonalWelcome, readPersonalWelcome, () => null);
   const personalExperience = status === "authenticated" && user?.experience === "brown-burgundy";
+
+  const [appearanceEnabled, setAppearanceEnabled] = useState<boolean | null>(null);
+  const personalThemeEnabled = personalExperience && appearanceEnabled === true;
+  // Never trust a stale welcome hint before the server confirms the switch.
+  const returningPersonalEmail = appearanceEnabled === true ? rememberedPersonalEmail : null;
+  useEffect(() => {
+    let alive = true;
+    let inFlight = false;
+    const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const settings = await apiFetch<{vimithaThemeEnabled:boolean}>("/api/appearance", {auth:false});
+        if (alive && typeof settings.vimithaThemeEnabled === "boolean") {
+          setAppearanceEnabled(settings.vimithaThemeEnabled);
+        }
+      } catch { /* Keep the last confirmed state during a transient failure. */ }
+      finally { inFlight = false; }
+    };
+    void load();
+    const relevant = personalExperience || !!rememberedPersonalEmail;
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    const timer = relevant ? window.setInterval(onVisible, 5000) : undefined;
+    if (relevant) { window.addEventListener("focus", onVisible); document.addEventListener("visibilitychange", onVisible); }
+    return () => {
+      alive = false;
+      if (timer) window.clearInterval(timer);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [personalExperience, rememberedPersonalEmail]);
 
   // Scope tokens to this signed-in account, including portals; never persist them.
   useLayoutEffect(() => {
     const root = document.documentElement;
-    if (personalExperience) root.dataset.experience = "brown-burgundy";
+    if (personalThemeEnabled) root.dataset.experience = "brown-burgundy";
     else delete root.dataset.experience;
     return () => { delete root.dataset.experience; };
-  }, [personalExperience]);
+  }, [personalThemeEnabled]);
 
   // Recover a session from the httpOnly refresh cookie on first paint.
   useEffect(() => {
@@ -132,8 +166,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, status, expired, personalExperience, returningPersonalEmail, login, register, logout }),
-    [user, status, expired, personalExperience, returningPersonalEmail, login, register, logout]
+    () => ({ user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout }),
+    [user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
