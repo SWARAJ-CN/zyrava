@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useCustomization } from "@/components/providers/CustomizationProvider";
 import { CustomizationAnimation } from "@/components/features/customization/CustomizationAnimation";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Minimize2 } from "lucide-react";
 import { Icon } from "@/components/ui/icons";
@@ -13,9 +13,17 @@ import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import type { Song } from "@/lib/saavn";
 import { formatSeconds } from "@/lib/lyrics";
 import { LyricsPanel } from "./LyricsPanel";
+import {
+  DanceAnimation,
+  DancingCharacterPicker,
+} from "./DancingCharacterPicker";
+import type { DancingCharacter } from "@/lib/dancing-characters";
 
 const PersonalLyricsAnimation = dynamic(
-  () => import("./PersonalLyricsAnimation").then((module) => module.PersonalLyricsAnimation),
+  () =>
+    import("./PersonalLyricsAnimation").then(
+      (module) => module.PersonalLyricsAnimation,
+    ),
   { ssr: false, loading: () => null },
 );
 
@@ -45,8 +53,11 @@ export function FullscreenLyrics({
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [dancingCharacter, setDancingCharacter] =
+    useState<DancingCharacter | null>(null);
+  const [characterPickerOpen, setCharacterPickerOpen] = useState(false);
   const { personalThemeEnabled } = useAuth();
-  const { active:customization }=useCustomization();
+  const { active: customization } = useCustomization();
   const { playing, progress, togglePlay, stepTrack } = useMusicPlayer();
   const artwork = song.imageLarge || song.image;
   const elapsed = formatSeconds(Math.floor(progress));
@@ -73,12 +84,21 @@ export function FullscreenLyrics({
       ref={dialogRef}
       aria-label={`Fullscreen lyrics for ${song.title}`}
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
         onClose();
       }}
+      data-dancing-mode={!!dancingCharacter || undefined}
       data-personal-lyrics={personalThemeEnabled || undefined}
       data-customized-lyrics={!!customization || undefined}
-      style={customization?{background:customization.config.background,color:customization.config.text}:undefined}
+      style={
+        customization
+          ? {
+              background: customization.config.background,
+              color: customization.config.text,
+            }
+          : undefined
+      }
       className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-[#111419] p-0 text-white backdrop:bg-black"
     >
       {/* The artwork itself supplies the palette, including cross-origin covers. */}
@@ -100,11 +120,18 @@ export function FullscreenLyrics({
             />
           </div>
         ) : null}
-        {!customization ? <>
-          <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-black/10" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/15" />
-        </> : null}
-        {customization ? <CustomizationAnimation id={customization.config.lyricsAnimation} className="absolute inset-y-0 right-0 w-full opacity-25 [mask-image:linear-gradient(to_left,black,transparent)] md:w-[58%]"/> : null}
+        {!customization ? (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-black/10" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/15" />
+          </>
+        ) : null}
+        {customization ? (
+          <CustomizationAnimation
+            id={customization.config.lyricsAnimation}
+            className="absolute inset-y-0 right-0 w-full opacity-25 [mask-image:linear-gradient(to_left,black,transparent)] md:w-[58%]"
+          />
+        ) : null}
         {personalThemeEnabled ? (
           <div
             data-lyrics-hearts
@@ -116,7 +143,33 @@ export function FullscreenLyrics({
       </div>
 
       <div className="relative flex h-full min-h-0 flex-col px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-10 lg:px-[7vw]">
-        <div className="flex h-12 shrink-0 justify-end">
+        <div className="flex min-h-12 shrink-0 items-center justify-end gap-2">
+          {dancingCharacter ? (
+            <button
+              type="button"
+              className="dance-change-character"
+              onClick={() => setCharacterPickerOpen(true)}
+              aria-label="Change dancing character"
+            >
+              Change character
+            </button>
+          ) : null}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!!dancingCharacter}
+            aria-label="Dancing mode"
+            className="dance-mode-toggle"
+            onClick={() => {
+              if (dancingCharacter) setDancingCharacter(null);
+              else setCharacterPickerOpen(true);
+            }}
+          >
+            <span>Dancing mode</span>
+            <span className="dance-mode-track" aria-hidden="true">
+              <span />
+            </span>
+          </button>
           <button
             type="button"
             onClick={onClose}
@@ -128,30 +181,52 @@ export function FullscreenLyrics({
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] items-center gap-5 sm:gap-10 lg:gap-[7vw]">
+        <div
+          className={`grid min-h-0 flex-1 grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] items-center gap-5 sm:gap-10 lg:gap-[7vw] ${dancingCharacter ? "fullscreen-dance-layout" : ""}`}
+        >
           <section
             aria-label="Song lyrics"
             className="flex h-full min-h-0 min-w-0 flex-col"
           >
             {children}
           </section>
-          <div className="mx-auto w-full max-w-[min(35vw,58dvh)]">
-            <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-white/5 shadow-[0_24px_90px_rgba(0,0,0,0.3)]">
-              {artwork ? (
-                <Image
-                  src={artwork}
-                  alt={`${song.title} artwork`}
-                  fill
-                  sizes="(min-width: 1024px) 35vw, 40vw"
-                  className="object-cover"
-                  priority
+          <div
+            className={
+              dancingCharacter
+                ? "fullscreen-dance-column"
+                : "mx-auto w-full max-w-[min(35vw,58dvh)]"
+            }
+          >
+            {dancingCharacter ? (
+              <div
+                className="fullscreen-dance-stage"
+                role="img"
+                aria-label={dancingCharacter.label}
+              >
+                <DanceAnimation
+                  key={dancingCharacter.id}
+                  character={dancingCharacter}
+                  playing={playing}
                 />
-              ) : (
-                <div className="grid h-full place-items-center">
-                  <Icon name="music" className="size-16 text-white/35" />
-                </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-white/5 shadow-[0_24px_90px_rgba(0,0,0,0.3)]">
+                {artwork ? (
+                  <Image
+                    src={artwork}
+                    alt={`${song.title} artwork`}
+                    fill
+                    sizes="(min-width: 1024px) 35vw, 40vw"
+                    className="object-cover"
+                    priority
+                  />
+                ) : (
+                  <div className="grid h-full place-items-center">
+                    <Icon name="music" className="size-16 text-white/35" />
+                  </div>
+                )}
+              </div>
+            )}
             <span
               role="timer"
               aria-label="Elapsed playback time"
@@ -197,6 +272,16 @@ export function FullscreenLyrics({
           </button>
         </div>
       </div>
+      {characterPickerOpen ? (
+        <DancingCharacterPicker
+          selected={dancingCharacter}
+          onSelect={(character) => {
+            setDancingCharacter(character);
+            setCharacterPickerOpen(false);
+          }}
+          onClose={() => setCharacterPickerOpen(false)}
+        />
+      ) : null}
     </dialog>,
     document.body,
   );
