@@ -13,6 +13,7 @@ export interface CustomizationPayment {
   currency: string;
   status: "pending" | "fulfilled";
   title: string;
+  purpose?: "customization_self" | "customization_gift" | "donation";
   recipientId: string;
   createdAt: string;
 }

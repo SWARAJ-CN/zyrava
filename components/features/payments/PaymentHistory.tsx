@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { durationLabel } from "@/lib/customization";
 import { formatPaymentAmount } from "@/lib/razorpay";
@@ -21,6 +21,39 @@ export function PaymentHistory() {
   const [data, setData] = useState<History | null>(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
+  const checkLock = useRef(false);
+  async function checkPayment(id: string) {
+    if (checkLock.current) return;
+    checkLock.current = true;
+    setChecking(id);
+    setNotice("");
+    try {
+      const result = await apiFetch<{ fulfilled: boolean }>(
+        "/api/customization/payments/check",
+        {
+          method: "POST",
+          body: { purchaseId: id },
+        },
+      );
+      setNotice(
+        result.fulfilled
+          ? "Payment confirmed. Your history is updated."
+          : "No completed payment yet. If money was debited, wait and check again before paying.",
+      );
+      setVersion((value) => value + 1);
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Could not check payment. Please try again.",
+      );
+    } finally {
+      checkLock.current = false;
+      setChecking(null);
+    }
+  }
   useEffect(() => {
     let active = true,
       request = 0;
@@ -75,7 +108,13 @@ export function PaymentHistory() {
           Payments
         </Link>
         <Link href="/customize">Customize</Link>
+        <Link href="/support">Buy A Mug</Link>
       </nav>
+      {notice ? (
+        <p role="status" className="customize-notice">
+          {notice}
+        </p>
+      ) : null}
       <div className="payment-history-toolbar">
         <p>
           {data
@@ -111,8 +150,8 @@ export function PaymentHistory() {
           <Icon name="list" className="mx-auto mb-3 size-7" />
           <h2>No payments yet</h2>
           <p>
-            Your customization checkouts will appear here with the amount,
-            status, and reason.
+            Your support contributions and past purchases appear here with the
+            amount, status, and reason.
           </p>
           <Link href="/customize">Explore Customize</Link>
         </div>
@@ -124,6 +163,7 @@ export function PaymentHistory() {
               label: "Awaiting confirmation",
               tone: "pending",
             };
+            const donation = p.purpose === "donation";
             const gift = p.purpose === "customization_gift";
             const recipient = gift
               ? p.recipient?.name || "another listener"
@@ -133,7 +173,11 @@ export function PaymentHistory() {
                 <div className="payment-history-card-top">
                   <div>
                     <span className="payment-history-kind">
-                      {gift ? "Customization gift" : "Personal customization"}
+                      {donation
+                        ? "Support for Zyrava"
+                        : gift
+                          ? "Customization gift"
+                          : "Personal customization"}
                     </span>
                     <h2>{p.title}</h2>
                     <time dateTime={p.createdAt}>{date(p.createdAt)}</time>
@@ -148,9 +192,11 @@ export function PaymentHistory() {
                 <div className="payment-history-reason">
                   <span>What it’s for</span>
                   <p>
-                    {gift
-                      ? `Save and send a custom look to ${recipient}.`
-                      : "Save and apply a custom look to your account."}
+                    {donation
+                      ? "A voluntary contribution to help build and run Zyrava."
+                      : gift
+                        ? `Save and send a custom look to ${recipient}.`
+                        : "Save and apply a custom look to your account."}
                   </p>
                   {gift && p.recipient ? (
                     <small>
@@ -163,13 +209,19 @@ export function PaymentHistory() {
                   ) : null}
                 </div>
                 <div className="payment-history-outcome">
-                  <span>{durationLabel(p.durationMinutes)}</span>
+                  {!donation ? (
+                    <span>{durationLabel(p.durationMinutes)}</span>
+                  ) : null}
                   <span>
-                    {p.fulfillmentStatus === "fulfilled"
-                      ? gift
-                        ? "Customization sent"
-                        : "Customization saved"
-                      : "Customization not saved"}
+                    {donation
+                      ? p.fulfillmentStatus === "fulfilled"
+                        ? "Support received"
+                        : "Support not confirmed"
+                      : p.fulfillmentStatus === "fulfilled"
+                        ? gift
+                          ? "Customization sent"
+                          : "Customization saved"
+                        : "Customization not saved"}
                   </span>
                 </div>
                 {p.amountRefunded > 0 ? (
@@ -190,7 +242,9 @@ export function PaymentHistory() {
                     </div>
                     {p.fulfilledAt ? (
                       <div>
-                        <dt>{gift ? "Sent" : "Saved"}</dt>
+                        <dt>
+                          {donation ? "Received" : gift ? "Sent" : "Saved"}
+                        </dt>
                         <dd>{date(p.fulfilledAt)}</dd>
                       </div>
                     ) : null}
@@ -205,9 +259,15 @@ export function PaymentHistory() {
                 {p.fulfillmentStatus !== "fulfilled" &&
                 p.orderId &&
                 !p.amountRefunded ? (
-                  <Link className="payment-history-recover" href="/customize">
-                    Already paid? Check your payment in Customize
-                  </Link>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={checking !== null}
+                    loading={checking === p.id}
+                    onClick={() => void checkPayment(p.id)}
+                  >
+                    Check payment
+                  </Button>
                 ) : null}
               </article>
             );

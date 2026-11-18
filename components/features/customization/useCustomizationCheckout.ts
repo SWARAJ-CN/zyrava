@@ -12,7 +12,9 @@ import {
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useCustomization } from "@/components/providers/CustomizationProvider";
 
-export function useCustomizationCheckout() {
+export function useCustomizationCheckout(
+  mode: "customization" | "donation" = "customization",
+) {
   const { user } = useAuth();
   const { refresh } = useCustomization();
   const [pricing, setPricing] = useState<{
@@ -39,10 +41,16 @@ export function useCustomizationCheckout() {
       ),
     ]);
     if (alive.current) {
-      setPending(response.payments);
+      setPending(
+        response.payments.filter((p) =>
+          mode === "donation"
+            ? p.purpose === "donation"
+            : p.purpose !== "donation",
+        ),
+      );
       setPricing(price);
     }
-  }, []);
+  }, [mode]);
   useEffect(() => {
     alive.current = true;
     queueMicrotask(() => {
@@ -72,7 +80,7 @@ export function useCustomizationCheckout() {
     );
     if (result.fulfilled) {
       attempt.current = null;
-      await refresh();
+      if (payment.purpose !== "donation") await refresh();
       await reload();
     }
     return result.fulfilled;
@@ -90,7 +98,10 @@ export function useCustomizationCheckout() {
         amount: payment.amount,
         currency: payment.currency,
         name: "ZYRAVA",
-        description: `Customization · ${payment.title}`,
+        description:
+          payment.purpose === "donation"
+            ? "Buy A Mug · Support Zyrava"
+            : `Customization · ${payment.title}`,
         prefill: {
           name: user?.name ?? undefined,
           email: user?.email ?? undefined,
@@ -179,12 +190,37 @@ export function useCustomizationCheckout() {
         ]);
       return open(payment);
     });
+  const donate = (amount: number) =>
+    run(async () => {
+      if (!pricing?.configured)
+        throw new Error("Support payments are unavailable right now.");
+      if (!Number.isSafeInteger(amount) || amount < 100 || amount > 1000000)
+        throw new Error("Choose an amount between ₹1 and ₹10,000.");
+      await loadRazorpay();
+      const fingerprint = JSON.stringify({ purpose: "donation", amount });
+      if (attempt.current?.fingerprint !== fingerprint)
+        attempt.current = { fingerprint, requestId: crypto.randomUUID() };
+      const payment = await apiFetch<CustomizationPayment>(
+        "/api/customization/donations/order",
+        {
+          method: "POST",
+          body: { amount, requestId: attempt.current.requestId },
+        },
+      );
+      if (alive.current)
+        setPending((previous) => [
+          payment,
+          ...previous.filter((p) => p.id !== payment.id),
+        ]);
+      return open(payment);
+    });
   return {
     pricing,
     busy,
     error,
     pending,
     pay,
+    donate,
     resume: (payment: CustomizationPayment) => run(() => open(payment)),
     check: (payment: CustomizationPayment) =>
       run(async () => {

@@ -12,7 +12,6 @@ import Link from "next/link";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useCustomization } from "@/components/providers/CustomizationProvider";
 import { useToast } from "@/components/providers/ToastProvider";
-import { formatPaymentAmount } from "@/lib/razorpay";
 import { apiFetch } from "@/lib/api";
 import {
   CUSTOM_ANIMATIONS,
@@ -32,7 +31,6 @@ import {
 } from "@/lib/customization";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/icons";
-import { useCustomizationCheckout } from "./useCustomizationCheckout";
 import { CustomizationAnimation } from "./CustomizationAnimation";
 
 const SLOTS = [
@@ -184,11 +182,10 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
     reset,
     remove,
   } = useCustomization();
-  const payment = useCustomizationCheckout();
-  const busy = providerBusy || payment.busy;
-  const priceLabel = payment.pricing
-    ? formatPaymentAmount(payment.pricing.amount, payment.pricing.currency)
-    : "…";
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveLock = useRef(false);
+  const busy = providerBusy || saving;
   const notifications = useToast();
   const searchRevision = useRef(0);
   const invalidateSearch = useCallback(() => {
@@ -288,9 +285,16 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!recipient || !valid || busy) return;
+    if (!recipient || !valid || busy || saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
+    setSaveError(null);
     try {
-      if (!(await payment.pay(recipient.id, draft))) return;
+      await apiFetch("/api/customization/save", {
+        method: "POST",
+        body: { recipientId: recipient.id, config: draft },
+      });
+      await refresh();
       const message =
         recipient.id === me.id
           ? "Saved to your account. Your new look is live."
@@ -300,8 +304,13 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
         recipient.id === me.id ? "Your look is ready" : "Customization sent",
         recipient.name || recipient.email || undefined,
       );
-    } catch {
-      /* Provider displays the server error. */
+    } catch (e) {
+      setSaveError(
+        e instanceof Error ? e.message : "Could not save your customization.",
+      );
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
     }
   };
   const respondTo = async (design: CustomizationDesign, accept: boolean) => {
@@ -429,76 +438,22 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
           </p>
         </div>
       ) : null}
-      <div className="customize-price-note">
-        <strong>{priceLabel} per save or send</strong>
-        <Link href="/payments" className="payment-history-recover">
-          View payment history
-        </Link>
-        <span>
-          One-time payment through Razorpay. Editing and saving again costs{" "}
-          {priceLabel}. Recipients can apply paid gifts for free.
-        </span>
-      </div>
-      {payment.error ? (
-        <p className="customize-notice" role="alert">
-          {payment.error}
-        </p>
-      ) : null}
-      {payment.pending.length > 0 ? (
-        <section
-          className="customize-payments"
-          aria-label="Pending customization payments"
-        >
-          <h2>Pending checkouts</h2>
-          <p className="customize-help">
-            Already paid? Check payment first. Resume uses the same order and
-            the design saved when you started checkout.
+      <div className="customize-price-note customize-support-note">
+        <div>
+          <strong>Made with care. Yours to customize.</strong>
+          <p>
+            Saving and sending designs is free. A virtual mug helps me keep
+            Zyrava growing.
           </p>
-          {payment.pending.map((purchase) => (
-            <div className="customize-payment-row" key={purchase.id}>
-              <div>
-                <strong>{purchase.title}</strong>
-                <p className="customize-help">
-                  {formatPaymentAmount(purchase.amount, purchase.currency)} ·{" "}
-                  {new Date(purchase.createdAt).toLocaleDateString()} ·{" "}
-                  {purchase.orderId}
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={busy}
-                onClick={() =>
-                  void payment.check(purchase).then((done) => {
-                    if (done)
-                      notifications.success(
-                        "Payment confirmed",
-                        "Your customization is saved.",
-                      );
-                  })
-                }
-              >
-                Check payment
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() =>
-                  void payment.resume(purchase).then((done) => {
-                    if (done)
-                      notifications.success(
-                        "Payment confirmed",
-                        "Your customization is saved.",
-                      );
-                  })
-                }
-              >
-                Resume checkout
-              </Button>
-            </div>
-          ))}
-        </section>
+        </div>
+        <Link href="/support" className="support-link-button">
+          Buy A Mug <span aria-hidden="true">↗</span>
+        </Link>
+      </div>
+      {saveError ? (
+        <p className="customize-notice" role="alert">
+          {saveError}
+        </p>
       ) : null}
       {error ? (
         <div className="customize-notice" role="alert">
@@ -551,10 +506,7 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
                 role="tabpanel"
                 aria-labelledby={`occasion-${template}`}
               >
-                <fieldset
-                  className="customize-payment-fields"
-                  disabled={payment.busy}
-                >
+                <fieldset className="customize-payment-fields" disabled={busy}>
                   <fieldset className="customize-section">
                     <legend>01 · Who is it for?</legend>
                     <p className="customize-help">
@@ -1135,8 +1087,8 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
         <p>
           {panel === "design"
             ? recipient?.id === me.id
-              ? `${priceLabel} once. Your design is saved after payment is verified.`
-              : `${priceLabel} once. Your recipient chooses when to apply it.`
+              ? "Free to save. Make this listening room yours."
+              : "Free to send. Your recipient chooses when to apply it."
             : "You’re always in control of your own look."}
         </p>
         {panel === "design" ? (
@@ -1144,11 +1096,11 @@ function ConsoleBody({ me }: { me: CustomizationPerson }) {
             type="submit"
             form="customize-form"
             loading={busy}
-            disabled={!recipient || !valid || !payment.pricing?.configured}
+            disabled={!recipient || !valid || busy}
           >
             {recipient?.id === me.id
-              ? `Pay ${priceLabel} and apply`
-              : `Pay ${priceLabel} and send`}
+              ? "Apply customization"
+              : "Send customization"}
           </Button>
         ) : (
           <Button variant="secondary" onClick={() => setPanel("design")}>

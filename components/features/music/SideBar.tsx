@@ -38,7 +38,7 @@ type DockTab = "browse" | "library" | "dashboard" | "mixer";
  * `chat` is not a shelf of the dock — it is the door to the community room,
  * which draws over the page like the console does, so it never lands in `tab`.
  */
-type DockEntry = DockTab | "chat" | "customize" | "payments";
+type DockEntry = DockTab | "chat" | "customize" | "payments" | "support";
 
 const TABS: Array<{
   value: DockEntry;
@@ -51,6 +51,7 @@ const TABS: Array<{
   { value: "mixer", label: "Mixer", icon: "sliders" },
   { value: "chat", label: "Community", icon: "message" },
   { value: "customize", label: "Customize", icon: "sparkles" },
+  { value: "support", label: "Buy A Mug", icon: "heart" },
   { value: "payments", label: "Payments", icon: "list" },
 ];
 
@@ -108,7 +109,8 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
   const router = useRouter();
   const customizeOpen = pathname === "/customize";
   const paymentsOpen = pathname === "/payments";
-  const accountPageOpen = customizeOpen || paymentsOpen;
+  const supportOpen = pathname === "/support";
+  const accountPageOpen = customizeOpen || paymentsOpen || supportOpen;
   const [heavyPending, setHeavyPending] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [playlistName, setPlaylistName] = useState("");
@@ -256,7 +258,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
         )}
       >
         {TABS.filter((entry) => !personalExperience || entry.value === "browse" || entry.value === "library").map((entry) => {
-          const active = entry.value === "payments" ? paymentsOpen : entry.value === "customize" ? customizeOpen : entry.value === "chat" ? chatOpen : !accountPageOpen && tab === entry.value;
+          const active = entry.value === "support" ? supportOpen : entry.value === "payments" ? paymentsOpen : entry.value === "customize" ? customizeOpen : entry.value === "chat" ? chatOpen : !accountPageOpen && tab === entry.value;
           const badge=entry.value==="customize"?customizations.incoming.length:entry.value==="chat"?chatBadge:0;
           return (
             <button
@@ -268,9 +270,9 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
               onClick={() => {
                 /* The community room is an overlay, not another shelf — it never
                    takes the dock's own tab state with it. */
-                if (entry.value === "customize" || entry.value === "payments") {
+                if (entry.value === "customize" || entry.value === "payments" || entry.value === "support") {
                   if (!requireAuth("tab")) return;
-                  router.push(entry.value === "payments" ? "/payments" : "/customize");
+                  router.push(`/${entry.value}`);
                   if (mobile) setMobileNavOpen(false);
                   return;
                 }
@@ -338,7 +340,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
           {accountPageOpen && tab === "browse" ? (
             <div className="px-2.5 py-2">
               <SectionLabel>Your listening room</SectionLabel>
-              <p className="text-xs leading-relaxed text-muted">{paymentsOpen ? "Review your payments, their status, and what each checkout was for." : "Create a look, review designs made for you, or manage your saved customizations."}</p>
+              <p className="text-xs leading-relaxed text-muted">{supportOpen ? "A little support helps keep Zyrava growing. Every contribution is optional." : paymentsOpen ? "Review your payments, their status, and what each checkout was for." : "Create a look, review designs made for you, or manage your saved customizations."}</p>
               <button type="button" className="mt-4 text-xs font-semibold text-brand" onClick={() => { router.push("/"); if (mobile) setMobileNavOpen(false); }}>Back to music</button>
             </div>
           ) : null}

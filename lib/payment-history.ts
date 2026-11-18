@@ -2,7 +2,7 @@ import type { CustomizationPerson } from "./customization";
 export interface PaymentHistoryItem {
   id: string;
   title: string;
-  purpose: "customization_self" | "customization_gift";
+  purpose: "customization_self" | "customization_gift" | "donation";
   recipient: CustomizationPerson | null;
   amount: number;
   currency: string;
