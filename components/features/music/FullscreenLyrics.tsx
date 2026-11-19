@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useCustomization } from "@/components/providers/CustomizationProvider";
 import { CustomizationAnimation } from "@/components/features/customization/CustomizationAnimation";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Minimize2 } from "lucide-react";
 import { Icon } from "@/components/ui/icons";
@@ -18,6 +18,18 @@ import {
   DancingCharacterPicker,
 } from "./DancingCharacterPicker";
 import type { DancingCharacter } from "@/lib/dancing-characters";
+
+const appDisplayQuery = "(display-mode: standalone), (display-mode: minimal-ui), (display-mode: fullscreen)";
+function isAppDisplay() {
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true ||
+    window.matchMedia(appDisplayQuery).matches;
+}
+function subscribeAppDisplay(update: () => void) {
+  const media = window.matchMedia(appDisplayQuery);
+  media.addEventListener("change", update);
+  return () => media.removeEventListener("change", update);
+}
+const serverAppDisplay = () => false;
 
 const PersonalLyricsAnimation = dynamic(
   () =>
@@ -53,6 +65,7 @@ export function FullscreenLyrics({
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const appDisplay = useSyncExternalStore(subscribeAppDisplay, isAppDisplay, serverAppDisplay);
   const [dancingCharacter, setDancingCharacter] =
     useState<DancingCharacter | null>(null);
   const [characterPickerOpen, setCharacterPickerOpen] = useState(false);
@@ -88,6 +101,7 @@ export function FullscreenLyrics({
         event.preventDefault();
         onClose();
       }}
+      data-pwa-reader={appDisplay || undefined}
       data-dancing-mode={!!dancingCharacter || undefined}
       data-personal-lyrics={personalThemeEnabled || undefined}
       data-customized-lyrics={!!customization || undefined}
@@ -142,7 +156,7 @@ export function FullscreenLyrics({
         ) : null}
       </div>
 
-      <div className="relative flex h-full min-h-0 flex-col px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-10 lg:px-[7vw]">
+      <div className="fullscreen-reader-shell relative flex h-full min-h-0 flex-col px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-10 lg:px-[7vw]">
         <div className="flex min-h-12 shrink-0 items-center justify-end gap-2">
           {dancingCharacter ? (
             <button
@@ -182,7 +196,7 @@ export function FullscreenLyrics({
         </div>
 
         <div
-          className={`grid min-h-0 flex-1 grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] items-center gap-5 sm:gap-10 lg:gap-[7vw] ${dancingCharacter ? "fullscreen-dance-layout" : ""}`}
+          className={`fullscreen-lyrics-layout grid min-h-0 flex-1 grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] items-center gap-5 sm:gap-10 lg:gap-[7vw] ${dancingCharacter ? "fullscreen-dance-layout" : ""}`}
         >
           <section
             aria-label="Song lyrics"
@@ -193,8 +207,8 @@ export function FullscreenLyrics({
           <div
             className={
               dancingCharacter
-                ? "fullscreen-dance-column"
-                : "mx-auto w-full max-w-[min(35vw,58dvh)]"
+                ? "fullscreen-artwork-column fullscreen-dance-column"
+                : "fullscreen-artwork-column mx-auto w-full max-w-[min(35vw,58dvh)]"
             }
           >
             {dancingCharacter ? (
@@ -227,6 +241,9 @@ export function FullscreenLyrics({
                 )}
               </div>
             )}
+            {appDisplay ? <div className="fullscreen-track-caption">
+              <h2>{song.title}</h2><p>{song.artist}</p>
+            </div> : null}
             <span
               role="timer"
               aria-label="Elapsed playback time"

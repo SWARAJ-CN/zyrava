@@ -239,6 +239,7 @@ export default function MusicPage() {
 
   /** Toggles a language chip — any change resets the page counter. */
   const toggleLang = (label: string) => {
+    pendingRegion.current = null;
     setSelectedLangs((prev) =>
       prev.includes(label) ? prev.filter((value) => value !== label) : [...prev, label]
     );
@@ -247,6 +248,7 @@ export default function MusicPage() {
 
   /** Toggles a vibe chip — same reset, new query shape. */
   const toggleVibe = (value: string) => {
+    pendingRegion.current = null;
     setSelectedVibes((prev) =>
       prev.includes(value) ? prev.filter((entry) => entry !== value) : [...prev, value]
     );
@@ -263,12 +265,19 @@ export default function MusicPage() {
   /** Opens a region below and brings the library into view. A region card is
    * a single-language pick, so it also pins the language chips to just that
    * region — chips and cards never disagree about what should load. */
+  const pendingRegion = useRef<string | null>(null);
+  const changeSearch = (value: string) => {
+    pendingRegion.current = null;
+    setInput(value);
+  };
   const openRegion = (label: string) => {
+    pendingRegion.current = label;
     setInput("");
     setTerm(label);
     setBatch(0);
     setSelectedLangs([label]);
-    if (term !== label) setAttempt((value) => value + 1);
+    setSelectedVibes([]);
+    setAttempt((value) => value + 1);
     document
       .getElementById("region-library")
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -290,34 +299,7 @@ export default function MusicPage() {
    * first page, queues it and opens the library underneath.
    */
   const playRegionNow = async (label: string): Promise<void> => {
-    const region = REGIONS.find((candidate) => candidate.label === label);
-    if (!region) return;
-    setTerm(label);
-    setBatch(0);
-    try {
-      const params = new URLSearchParams({
-        q: region.queries[0],
-        // A day-shifted page: pressing play on the carousel opens today's set,
-        // not yesterday's opening track.
-        page: String(1 + (carouselDay % 9)),
-        limit: String(PAGE_SIZE),
-      });
-      const response = await fetch(`/api/music/search?${params.toString()}`);
-      const payload = (await response.json().catch(() => null)) as PagePayload | null;
-      const fresh = (payload?.songs ?? []).slice();
-      if (fresh.length) {
-        // The carousel's own first page is not the ranked list below, so it
-        // does not join the chain.
-        chain.current = null;
-        startQueue(fresh, label, 0);
-        document
-          .getElementById("region-library")
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    } catch {
-      // The catalogue fetch failing quietly keeps the app usable — the region
-      // can still be opened manually.
-    }
+    openRegion(label);
   };
 
   // Debounced search — clearing the box returns to the region you were
@@ -533,7 +515,7 @@ export default function MusicPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [termKey, batch]);
 
-  const songs = library.termKey === termKey ? library.songs : [];
+  const songs = useMemo(() => library.termKey === termKey ? library.songs : [], [library, termKey]);
   /** True while the first results for a new query are still on the wire. */
   const listLoading = fetching && songs.length === 0;
   /** Pages left to walk, counted from wherever this visit opened. */
@@ -602,15 +584,11 @@ export default function MusicPage() {
       return () => cancelAnimationFrame(frame);
     }
     const held = new Set(queue.map((song) => song.id));
-    const frame = requestAnimationFrame(() => {
-      appendQueue(landed);
-      active.page = batch;
-      // A page of songs the queue already holds adds nothing; two of those in
-      // a row means the catalogue has stopped giving new tracks.
-      active.empties = landed.some((song) => !held.has(song.id)) ? 0 : active.empties + 1;
-      if (active.empties >= 2) chain.current = null;
-    });
-    return () => cancelAnimationFrame(frame);
+    // Queue data must land while the document is hidden too.
+    appendQueue(landed);
+    active.page = batch;
+    active.empties = landed.some((song) => !held.has(song.id)) ? 0 : active.empties + 1;
+    if (active.empties >= 2) chain.current = null;
   }, [batch, fetching, error, termKey, queue, library, appendQueue]);
 
   /* Backstop for the chain above: when the last track of the run ends, ask for
@@ -618,13 +596,16 @@ export default function MusicPage() {
   useEffect(() => {
     setQueueEnd(() => {
       const active = chain.current;
-      if (!active || active.key !== termKey || active.page !== batch) return false;
+      if (!active || active.key !== termKey || queue[0]?.id !== active.firstId) return false;
+      // The prefetch may already have turned the page before Next was pressed.
+      if (batch === active.page + 1 && !error) return true;
+      if (active.page !== batch) return false;
       if (fetching || error || batch + 1 >= pageCount || batch >= MAX_CHAIN_PAGES) return false;
       setBatch((value) => value + 1);
       return true;
     });
     return () => setQueueEnd(null);
-  }, [batch, error, fetching, pageCount, setQueueEnd, termKey]);
+  }, [batch, error, fetching, pageCount, setQueueEnd, termKey, queue]);
 
   /** Card heading: a typed phrase leads, then vibes, then the region mix. */
   const libraryTitle = freeText
@@ -644,6 +625,7 @@ export default function MusicPage() {
    *  never handed to the chain — left out here, the growers below all stand
    *  down and the ten stay ten. */
   const playFromPage = (songIndex: number) => {
+    pendingRegion.current = null;
     if (!isGuest) {
       chain.current = {
         key: termKey,
@@ -657,6 +639,17 @@ export default function MusicPage() {
     }
     startQueue(songs, term, songIndex);
   };
+
+  useEffect(() => {
+    const label = pendingRegion.current;
+    if (!label || term !== label || fetching || library.termKey !== termKey) return;
+    pendingRegion.current = null;
+    if (error || !songs.length) return;
+    if (!isGuest) chain.current = {
+      key: termKey, page: batch, firstId: songs[0].id, turnToken: "", empties: 0,
+    };
+    startQueue(songs, label, 0);
+  }, [term, termKey, fetching, library.termKey, error, songs, batch, isGuest, startQueue]);
 
   /** Shuffle-play the visible list: mix the queue, then start at the top. */
   const shufflePlay = () => {
@@ -724,7 +717,7 @@ export default function MusicPage() {
         search={
             <SearchWithSuggestions
               value={input}
-              onChange={setInput}
+              onChange={changeSearch}
               onPick={(song) => startQueue([song], song.title, 0)}
               onCommit={() => {
                 // Enter means "show me what you found", so the list comes to
@@ -806,7 +799,7 @@ export default function MusicPage() {
             <span className="w-20 flex-none whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
               Language
             </span>
-            <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto [scrollbar-width:none] [mask-image:linear-gradient(to_right,#000_94%,transparent)] [&::-webkit-scrollbar]:hidden">
+            <div className="home-filter-scroll flex min-w-0 flex-1 gap-1.5 overflow-x-auto [scrollbar-width:none] [mask-image:linear-gradient(to_right,#000_94%,transparent)] [&::-webkit-scrollbar]:hidden">
               {REGIONS.map((candidate) => {
                 const checked =
                   selectedLangs.length > 0
@@ -846,7 +839,7 @@ export default function MusicPage() {
             <span className="w-20 flex-none whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
               Vibe
             </span>
-            <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto [scrollbar-width:none] [mask-image:linear-gradient(to_right,#000_94%,transparent)] [&::-webkit-scrollbar]:hidden">
+            <div className="home-filter-scroll flex min-w-0 flex-1 gap-1.5 overflow-x-auto [scrollbar-width:none] [mask-image:linear-gradient(to_right,#000_94%,transparent)] [&::-webkit-scrollbar]:hidden">
               {VIBES.map((vibe) => {
                 const checked = selectedVibes.includes(vibe.value);
                 return (
@@ -936,6 +929,7 @@ export default function MusicPage() {
               key={candidate.label}
               type="button"
               aria-pressed={active}
+              aria-label={`Play ${candidate.label} songs`}
               onClick={() => openRegion(candidate.label)}
               className={cn(
                 "group relative aspect-square w-32 flex-none snap-start cursor-pointer overflow-hidden rounded-lg border text-start shadow-field transition-all duration-200 hover:-translate-y-1 hover:shadow-pop sm:w-36",
@@ -968,7 +962,7 @@ export default function MusicPage() {
                   "absolute end-2.5 top-2.5 grid size-8 place-items-center rounded-full bg-white text-black shadow-field transition-all duration-200",
                   active
                     ? "opacity-100"
-                    : "translate-y-1 opacity-0 group-hover:translate-y-0 group-hover:opacity-100"
+                    : "opacity-100 sm:translate-y-1 sm:opacity-0 sm:group-hover:translate-y-0 sm:group-hover:opacity-100 group-focus-visible:opacity-100"
                 )}
               >
                 {active && playing ? (

@@ -402,16 +402,6 @@ function makeSilentBlob(): string | null {
 }
 
 /**
- * WebKit on iOS is the engine that suspends an AudioContext once the app
- * leaves the foreground; the rest keep an audible one running. Only it needs
- * the graph to step aside.
- */
-const SUSPENDS_GRAPH_WHEN_HIDDEN =
-  typeof navigator !== "undefined" &&
-  (/iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
-
-/**
  * App-wide music playback.
  *
  * Lives beside the data providers (not inside /music) so the queue and the
@@ -1537,8 +1527,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const userPausedRef = useRef(false);
   /** A source swap pauses the element on its way through — not an interruption. */
   const swapUntilRef = useRef(0);
-  /** The graph was live when the page left, so put it back when it returns. */
-  const rebuildGraphRef = useRef(false);
   /** The retry chain lives here so it can call itself. */
   const retryRef = useRef<() => void>(() => {});
 
@@ -1596,9 +1584,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, [recoverPlayback]);
 
   /**
-   * Frees the element from Web Audio. A media source cannot be unwired, so the
-   * only way out of a suspended context is to close it; playback carries on
-   * natively and the graph is rebuilt from the same refs on the way back.
+   * Release graph resources only when the provider is torn down. The element
+   * remains bound to its MediaElementSource for its lifetime.
    */
   const releaseGraph = useCallback(() => {
     spatialCleanupRef.current();
@@ -1646,37 +1633,27 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     void context?.close().catch(() => undefined);
   }, []);
 
+  // Keep the graph attached for its lifetime. Closing a MediaElementSource's
+  // context does not return its element to native output and can leave it silent.
   useEffect(() => {
-    if (!SUSPENDS_GRAPH_WHEN_HIDDEN) return;
-    const onVisibility = () => {
-      if (document.hidden) {
-        if (!audioContextRef.current) return;
-        rebuildGraphRef.current = true;
-        releaseGraph();
-        setVisualizerReady(false);
-      } else if (rebuildGraphRef.current) {
-        rebuildGraphRef.current = false;
-        setVisualizerReady(Boolean(ensureGraph()));
-      }
+    const session = (navigator as Navigator & {
+      audioSession?: { type: string };
+    }).audioSession;
+    if (!session) return;
+    const previous = session.type;
+    try { session.type = "playback"; } catch { /* Unsupported browser. */ }
+    return () => {
+      try { session.type = previous; } catch { /* Page teardown. */ }
     };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [ensureGraph, releaseGraph]);
+  }, []);
 
-  /* A page holding a web lock is not a page the browser freezes, and a frozen
-   * tab stops decoding shortly after it leaves the screen. The lock spans the
-   * whole track — not just the "playing" flag — so a background stall never
-   * leaves the tab freezable in the middle of a song. */
+  // Best-effort lifecycle hint on supporting browsers, not an OS wake lock.
   useEffect(() => {
     const locks = navigator.locks;
     if (!locks || !current) return;
     let release = () => {};
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    void locks
-      .request("zyrava-playback", () => held)
-      .catch(() => undefined);
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    void locks.request("zyrava-playback", () => held).catch(() => undefined);
     return () => release();
   }, [current]);
 
@@ -1815,8 +1792,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // Unknown or already refused: native playback, not a probe. The element
       // without `crossorigin` streams anything, and a Web Audio tap left
       // attached would silence the track the moment the stream taints.
-      if (audioContextRef.current) releaseGraph();
-      audio.removeAttribute("crossorigin");
+      if (audioContextRef.current) audio.crossOrigin = "anonymous";
+      else audio.removeAttribute("crossorigin");
       // Without CORS the wave falls back to its CSS mimic; the probe running
       // below warms the cache so the following tracks take the full graph.
       setVisualizerReady(false);
@@ -1829,6 +1806,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           // the play position is captured and restored across the swap.
           if (
             !allowed ||
+            document.hidden ||
             cancelled ||
             currentRef.current?.id !== current.id ||
             audioContextRef.current
@@ -1948,13 +1926,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
    * arrive, so the listener hears one short beat instead of a stopped player. */
   useEffect(() => {
     if (!pendingEndRef.current || index + 1 >= queue.length) return;
-    const frame = requestAnimationFrame(() => {
-      if (!pendingEndRef.current) return;
-      pendingEndRef.current = false;
-      shouldPlayRef.current = true;
-      setIndex(index + 1);
-    });
-    return () => cancelAnimationFrame(frame);
+    // Animation frames stop in hidden documents; queue advancement must not.
+    pendingEndRef.current = false;
+    shouldPlayRef.current = true;
+    setIndex(index + 1);
   }, [queue, index]);
 
   /** The paged surfaces register their own "give me the next page" here. */
@@ -2119,6 +2094,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       });
     } else {
       userPausedRef.current = true;
+      shouldPlayRef.current = false;
+      pendingEndRef.current = false;
       clearRecovery();
       audio.pause();
     }
@@ -2138,6 +2115,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         togglePlay();
         return;
       }
+      pendingEndRef.current = false;
+      userPausedRef.current = false;
       shouldPlayRef.current = true;
       setQueue(run);
       setQueueLabel(label);
@@ -2391,9 +2370,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       shouldPlayRef.current = true;
+      userPausedRef.current = false;
+      if (next >= queue.length) {
+        if (queueEndRef.current?.()) {
+          pendingEndRef.current = true;
+          return;
+        }
+        pendingEndRef.current = false;
+        if (queue.length === 1 && audio) {
+          audio.currentTime = 0;
+          void audio.play().catch(recoverPlayback);
+          return;
+        }
+      }
       setIndex(next >= queue.length ? 0 : next);
     },
-    [index, queue, shuffle, isGuest, requestLogin, stop]
+    [index, queue, shuffle, isGuest, requestLogin, stop, recoverPlayback]
   );
 
   /** Track end: repeat-one restarts in place; otherwise the queue advances
@@ -2493,6 +2485,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // working with the tab in the background — the music keeps playing there.
   useEffect(() => {
     if (!current || !("mediaSession" in navigator)) return;
+    const register = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try { navigator.mediaSession.setActionHandler(action, handler); }
+      catch { /* One unsupported action must not disable the others. */ }
+    };
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: current.title,
@@ -2502,22 +2498,26 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           ? [{ src: current.imageLarge, sizes: "500x500", type: "image/jpeg" }]
           : [],
       });
-      navigator.mediaSession.setActionHandler("play", () => togglePlay());
-      navigator.mediaSession.setActionHandler("pause", () => togglePlay());
-      navigator.mediaSession.setActionHandler("nexttrack", () => stepTrack(1));
-      navigator.mediaSession.setActionHandler("previoustrack", () => stepTrack(-1));
+      register("play", () => {
+        if (audioRef.current?.paused) togglePlay();
+      });
+      register("pause", () => {
+        if (audioRef.current && !audioRef.current.paused) togglePlay();
+      });
+      register("nexttrack", () => stepTrack(1));
+      register("previoustrack", () => stepTrack(-1));
       // Kill/scrub from the OS mini-player: a lock-screen stop without a
       // handler leaves the session alive with the tab unanswerable.
-      navigator.mediaSession.setActionHandler("stop", () => stop());
-      navigator.mediaSession.setActionHandler("seekbackward", () => {
+      register("stop", () => stop());
+      register("seekbackward", () => {
         const audio = audioRef.current;
         if (audio) seek(Math.max(0, audio.currentTime - 10));
       });
-      navigator.mediaSession.setActionHandler("seekforward", () => {
+      register("seekforward", () => {
         const audio = audioRef.current;
         if (audio) seek(audio.currentTime + 10);
       });
-      navigator.mediaSession.setActionHandler("seekto", (details) => {
+      register("seekto", (details) => {
         if (details.seekTime !== undefined && details.fastSeek !== true) seek(details.seekTime);
       });
     } catch {
@@ -2525,14 +2525,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     return () => {
       try {
-        navigator.mediaSession.setActionHandler("play", null);
-        navigator.mediaSession.setActionHandler("pause", null);
-        navigator.mediaSession.setActionHandler("nexttrack", null);
-        navigator.mediaSession.setActionHandler("previoustrack", null);
-        navigator.mediaSession.setActionHandler("stop", null);
-        navigator.mediaSession.setActionHandler("seekbackward", null);
-        navigator.mediaSession.setActionHandler("seekforward", null);
-        navigator.mediaSession.setActionHandler("seekto", null);
+        register("play", null);
+        register("pause", null);
+        register("nexttrack", null);
+        register("previoustrack", null);
+        register("stop", null);
+        register("seekbackward", null);
+        register("seekforward", null);
+        register("seekto", null);
       } catch {
         // ignore
       }
@@ -2593,10 +2593,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       recoverPlayback();
     };
     window.addEventListener("pageshow", onWakeup);
-    window.addEventListener("resume", onWakeup);
+    document.addEventListener("resume", onWakeup);
+    document.addEventListener("visibilitychange", onWakeup);
     return () => {
       window.removeEventListener("pageshow", onWakeup);
-      window.removeEventListener("resume", onWakeup);
+      document.removeEventListener("resume", onWakeup);
+      document.removeEventListener("visibilitychange", onWakeup);
     };
   }, [recoverPlayback]);
 

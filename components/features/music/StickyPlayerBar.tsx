@@ -239,7 +239,7 @@ export function StickyPlayerBar() {
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40">
         <div
           className={cn(
-            "pointer-events-none mx-auto w-full max-w-[100rem] px-3 pb-3 sm:px-6 lg:px-8",
+            "sticky-player-width pointer-events-none mx-auto w-full max-w-[100rem] px-3 pb-3 sm:px-6 lg:px-8",
             "dock-offset",
             !sidebarWide && "dock-offset--rail"
           )}
@@ -350,7 +350,7 @@ export function StickyPlayerBar() {
 
           <div
             className={cn(
-              "glass pointer-events-auto relative border border-separator p-2.5 shadow-pop sm:p-0",
+              "sticky-player-card glass pointer-events-auto relative border border-separator p-2.5 shadow-pop sm:p-0",
               personalThemeEnabled
                 ? "rounded-3xl"
                 : "rounded-t-field border-b-0 sm:rounded-none sm:border-b-0 lg:rounded-b-none lg:border-b-0"
@@ -399,6 +399,11 @@ export function StickyPlayerBar() {
             {/* ── Phone: row 2 = seek + EQ ─────────────────────────── */}
             <div className="mt-2 flex items-center gap-2 sm:hidden">
               {seekRow}
+              <button type="button" aria-label={isLiked(current) ? "Remove from Liked songs" : "Like this song"}
+                aria-pressed={isLiked(current)} onClick={() => toggleLike(current)}
+                className={cn("grid size-11 shrink-0 place-items-center rounded-full transition-colors", isLiked(current) ? "text-danger" : "text-muted hover:text-foreground")}>
+                <Icon name="heart" className={cn("size-5", isLiked(current) && "fill-current")} />
+              </button>
               {!personalExperience ? (<button
                 type="button"
                 title="Equalizer"
@@ -476,7 +481,7 @@ export function StickyPlayerBar() {
                   aria-pressed={isLiked(current)}
                   onClick={() => toggleLike(current)}
                   className={cn(
-                    "hidden size-9 flex-none place-items-center rounded-full transition-colors lg:grid",
+                    "grid size-10 flex-none place-items-center rounded-full transition-colors",
                     isLiked(current)
                       ? "text-danger"
                       : "text-muted hover:text-foreground"
