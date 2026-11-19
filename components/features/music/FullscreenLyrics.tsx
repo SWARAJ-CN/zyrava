@@ -113,7 +113,7 @@ export function FullscreenLyrics({
             }
           : undefined
       }
-      className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-[#111419] p-0 text-white backdrop:bg-black"
+      className="fullscreen-reader-dialog fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-[#111419] p-0 text-white backdrop:bg-black"
     >
       {/* The artwork itself supplies the palette, including cross-origin covers. */}
       <div

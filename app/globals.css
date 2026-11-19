@@ -1257,3 +1257,52 @@ button[type="button"] {
   [data-pwa-reader] .fullscreen-track-caption { display:none; }
   [data-pwa-reader] .fullscreen-lyrics-layout > .fullscreen-dance-column { height:24dvh; width:24dvh; }
 }
+
+/* Stack on phones/tablets even before hydration or if standalone detection fails. */
+@media (max-width: 1023px), (display-mode: standalone), (display-mode: minimal-ui), (display-mode: fullscreen) {
+  .fullscreen-reader-dialog .fullscreen-lyrics-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: .75rem;
+  }
+  .fullscreen-reader-dialog .fullscreen-lyrics-layout > section {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 0;
+  }
+  .fullscreen-reader-dialog .fullscreen-lyrics-layout > .fullscreen-artwork-column {
+    grid-column: 1;
+    grid-row: 1;
+    width: min(72vw, 31dvh);
+    max-width: 100%;
+    margin-inline: auto;
+  }
+  .fullscreen-reader-dialog .fullscreen-lyrics-layout > .fullscreen-dance-column {
+    width: min(80vw, 38dvh);
+    height: 32dvh;
+  }
+  .fullscreen-reader-dialog [aria-label="Lyrics"] { container-type: size; }
+  .fullscreen-reader-dialog [aria-label="Lyrics"] > div { padding-block: 40cqh; }
+  .fullscreen-reader-dialog [aria-label="Lyrics"] button { text-align: center; }
+  .fullscreen-reader-dialog [role="timer"] { text-align: center; }
+}
+
+/* Small visible switch; the transparent hit area remains 44px tall. */
+[data-pwa-reader] .dance-mode-toggle {
+  position: relative; min-height: 26px; height: 26px;
+  padding: 0 6px; gap: 4px; font-size: 9px; line-height: 1;
+}
+[data-pwa-reader] .dance-mode-toggle::before { content: ""; position: absolute; inset: -9px 0; }
+[data-pwa-reader] .dance-mode-track { width: 22px; height: 12px; padding: 2px; flex-shrink: 0; }
+[data-pwa-reader] .dance-mode-track > span { width: 8px; height: 8px; }
+[data-pwa-reader] .dance-mode-toggle[aria-checked="true"] .dance-mode-track > span { transform: translateX(10px); }
+@media (max-width: 1023px), (display-mode: standalone), (display-mode: minimal-ui), (display-mode: fullscreen) {
+  .fullscreen-reader-dialog .dance-mode-toggle {
+    position: relative; min-height: 26px; height: 26px;
+    padding: 0 6px; gap: 4px; font-size: 9px; line-height: 1;
+  }
+  .fullscreen-reader-dialog .dance-mode-toggle::before { content: ""; position: absolute; inset: -9px 0; }
+  .fullscreen-reader-dialog .dance-mode-track { width: 22px; height: 12px; padding: 2px; flex-shrink: 0; }
+  .fullscreen-reader-dialog .dance-mode-track > span { width: 8px; height: 8px; }
+  .fullscreen-reader-dialog .dance-mode-toggle[aria-checked="true"] .dance-mode-track > span { transform: translateX(10px); }
+}
