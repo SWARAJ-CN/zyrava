@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
 import { AnimatePresence, motion } from "framer-motion";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
 import { useCustomization } from "@/components/providers/CustomizationProvider";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -102,7 +103,7 @@ function DockIcon({
  * The mobile drawer renders the same column at full width, which keeps both
  * presentations from drifting apart.
  */
-function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
+function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean; onSignOut: () => void }) {
   const [tab, setTab] = useState<DockTab>("browse");
   const {state:customizations}=useCustomization();
   const pathname = usePathname();
@@ -154,7 +155,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
     getGraphInfo,
   } = useMusicPlayer();
   const { resolved, toggle } = useTheme();
-  const { user, status: authStatus, logout, personalExperience, personalThemeEnabled } = useAuth();
+  const { user, status: authStatus, personalExperience, personalThemeEnabled } = useAuth();
   const { requireAuth } = useGuestLock();
   const { canInstall, install } = usePwa();
   const accountName = user?.name ?? user?.email ?? user?.phone ?? "Account";
@@ -813,7 +814,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
                   >
                     {accountName}
                   </span>
-                  <DockIcon label="Sign out" onClick={() => void logout()}>
+                  <DockIcon label="Sign out" onClick={onSignOut}>
                     <Icon name="log-out" className="size-4" strokeWidth={1.9} />
                   </DockIcon>
                 </div>
@@ -874,7 +875,7 @@ function DockBody({ wide, mobile }: { wide: boolean; mobile: boolean }) {
                 >
                   {accountInitial}
                 </span>
-                <DockIcon label="Sign out" onClick={() => void logout()}>
+                <DockIcon label="Sign out" onClick={onSignOut}>
                   <Icon name="log-out" className="size-4" strokeWidth={1.9} />
                 </DockIcon>
               </div>
@@ -918,6 +919,15 @@ const DRAWER_MS = 260;
 export function SideBar() {
   const { sidebarWide, setSidebarWide, mobileNavOpen, setMobileNavOpen } = useMusicPlayer();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const { logout } = useAuth();
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const requestLogout = () => {
+    // Release the native drawer's top-layer focus before opening confirmation.
+    dialogRef.current?.close();
+    setMobileNavOpen(false);
+    setLogoutOpen(true);
+  };
+
 
   /* The native modal gives Escape, focus trapping and the backdrop for free;
    * only the panel is styled — and it slides, so the drawer leaves the way it
@@ -983,7 +993,7 @@ export function SideBar() {
         {/* The body cross-fades over the width spring (class re-triggered by
             the effect below), so the rail reads as one body easing wide. */}
         <div ref={morphRef} className="dock-morph">
-          <DockBody wide={sidebarWide} mobile={false} />
+          <DockBody wide={sidebarWide} mobile={false} onSignOut={requestLogout} />
         </div>
       </aside>
 
@@ -1005,11 +1015,18 @@ export function SideBar() {
               transition={{ type: "spring", stiffness: 420, damping: 40 }}
               className="flex h-full w-[min(19.5rem,86vw)] flex-col border-e border-dock-line bg-dock shadow-pop"
             >
-              <DockBody wide mobile />
+              <DockBody wide mobile onSignOut={requestLogout} />
             </motion.div>
           ) : null}
         </AnimatePresence>
       </dialog>
+      {logoutOpen ? <ConfirmDialog
+        open title="Sign out of ZYRAVA?"
+        description="You'll need to sign in again to access your account."
+        confirmLabel="Sign out" cancelLabel="Stay signed in"
+        onCancel={() => setLogoutOpen(false)}
+        onConfirm={() => { setLogoutOpen(false); void logout(); }}
+      /> : null}
     </>
   );
 }
