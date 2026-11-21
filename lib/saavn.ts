@@ -1,11 +1,10 @@
 /**
  * JioSaavn (unofficial) music catalogue.
  *
- * Configured mirrors (the comma-separated URLs in `MUSIC_API`) are tried in
- * order. If every mirror is unavailable, a built-in fallback talks to
- * JioSaavn's own web API directly — the same source the mirrors themselves
- * use — including the DES stream-URL decryption, so the section keeps working
- * even when the whole community-mirror ecosystem is down.
+ * Configured mirrors come from `MUSIC_API`. Song search checks match quality
+ * before accepting a response and can consult JioSaavn directly when a mirror
+ * returns only alternate recordings. Playlist requests retain their ordered
+ * network fallback. Direct responses include DES stream-URL decryption.
  *
  * Hosted mirrors differ slightly in their payloads (`link` vs `url` keys,
  * artist fields as strings or objects…) and the direct API uses its own
@@ -13,13 +12,14 @@
  */
 
 import forge from "node-forge";
+import { normalizeSearch, rankSearchResults, recordingVersion, searchIntent, searchRelevance } from "./search-relevance";
 
 const rawBase = (process.env.MUSIC_API ?? "").trim().replace(/\/+$/, "");
 
 /**
  * One base URL per entry; multiple can be supplied comma-separated. Community
- * mirrors of this API go offline often (quota, deploys), so the catalogue is
- * tried against each in order and the first live one wins.
+ * mirrors can differ in availability and catalogue coverage. Song searches
+ * probe at most two configured mirrors plus the direct catalogue.
  */
 const API_BASES = rawBase
   ? rawBase.split(",").map((base) => base.trim().replace(/\/+$/, "")).filter(Boolean)
@@ -454,9 +454,6 @@ async function getPlaylistDetailDirect(id: string): Promise<PlaylistDetail | nul
 }
 
 
-function isRetryable(status: number): boolean {
-  return status === 429 || status === 404 || status >= 500;
-}
 
 /** DES key the JioSaavn web frontend encrypts media URLs with. */
 const JIOSAAVN_KEY = "38346591";
@@ -509,7 +506,7 @@ async function searchSongsDirect(
       "User-Agent": JIOSAAVN_USER_AGENT,
     },
     cache: "no-store",
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(5_000),
   }).catch(() => {
     throw new MusicApiError("Could not reach the music service.", 503);
   });
@@ -554,7 +551,7 @@ function songIdentity(song: Song): string {
     .replace(/\s+/g, " ")
     .trim();
   const artist = song.artist.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
-  return `${title}|${artist}`;
+  return `${title}|${artist}|${recordingVersion(song)}`;
 }
 
 /** Exact identity, including the runtime — used for quick lookups. */
@@ -577,49 +574,87 @@ export function dedupeSongs(songs: Song[]): Song[] {
   });
 }
 
-/**
- * Searches the catalogue. `page` starts at 1.
- *
- * Walks the configured bases and returns the first success; a definitive
- * answer (e.g. an empty result for a valid query) from an earlier base is
- * preferred over later bases. Only network failures, 429s and 5xx move on to
- * the next mirror.
- */
+const SEARCH_WINDOW = 30;
+const SEARCH_CACHE_MS = 120_000;
+type SearchSource = string | null;
+type SearchPlan = { source: SearchSource; query: string; first: SearchSuccess };
+// Coalesce suggestion/list requests. Keep the chosen source/query stable across
+// page sizes and pagination; never cache failures as successful empty searches.
+const searchPlans = new Map<string, { expires: number; promise: Promise<SearchPlan> }>();
+
+function fetchSearch(source: SearchSource, query: string, page: number) {
+  return source === null
+    ? searchSongsDirect(query, SEARCH_WINDOW, page)
+    : searchSongsOn(source, query, SEARCH_WINDOW, page);
+}
+
+async function chooseSearchPlan(query: string, quality: boolean): Promise<SearchPlan> {
+  const sources: SearchSource[] = [...new Set(API_BASES.slice(0, 2)), null];
+  const intent = searchIntent(query);
+  const catalogueQuery = quality ? intent.catalogueQuery : query;
+  let primary: SearchPlan | undefined;
+  let firstError: unknown;
+  try {
+    primary = { source: sources[0], query: catalogueQuery, first: await fetchSearch(sources[0], catalogueQuery, 1) };
+    if (!quality || primary.first.songs.some((song) => searchRelevance(song, query).confident)) return primary;
+  } catch (error) { firstError = error; }
+
+  // A 200 response containing covers is not a satisfactory exact-song match.
+  // Try another source and, for "title by artist", title-only retrieval so an
+  // artist typo does not exclude the original before our ranker can inspect it.
+  const probes = sources.slice(1).map((source) => ({ source, query: catalogueQuery }));
+  if (quality && intent.artist) {
+    for (const source of sources) probes.push({ source, query: intent.titleQuery });
+  }
+  const outcomes = await Promise.allSettled(probes.map(async (probe) => ({
+    ...probe, first: await fetchSearch(probe.source, probe.query, 1),
+  })));
+  const plans = primary ? [primary] : [];
+  for (const outcome of outcomes) {
+    if (outcome.status === "fulfilled") plans.push(outcome.value);
+    else firstError ??= outcome.reason;
+  }
+  if (!plans.length) throw firstError ?? new MusicApiError("Could not reach the music service.", 503);
+  const bestScore = (plan: SearchPlan) => Math.max(-Infinity,
+    ...plan.first.songs.map((song) => searchRelevance(song, query).score));
+  plans.sort((a, b) => bestScore(b) - bestScore(a));
+  return plans[0];
+}
+
+function getSearchPlan(query: string, quality: boolean): Promise<SearchPlan> {
+  const key = `${quality}|${normalizeSearch(query)}`;
+  const existing = searchPlans.get(key);
+  if (existing && existing.expires > Date.now()) return existing.promise;
+  const promise = chooseSearchPlan(query, quality);
+  searchPlans.delete(key);
+  searchPlans.set(key, { expires: Date.now() + SEARCH_CACHE_MS, promise });
+  while (searchPlans.size > 128) searchPlans.delete(searchPlans.keys().next().value!);
+  void promise.catch(() => {
+    if (searchPlans.get(key)?.promise === promise) searchPlans.delete(key);
+  });
+  return promise;
+}
+
+/** Stable 30-result windows: a 6-song suggestion tray and 10-song pages share
+ * the same ranked prefix. Slice by absolute offset, never discard overfetch. */
 export async function searchSongs(
   query: string,
   limit = 20,
-  page = 1
+  page = 1,
+  options: { quality?: boolean } = {}
 ): Promise<SearchSuccess> {
-  // No bases configured is fine — the built-in direct fallback below takes
-  // over and the section still works out of the box.
-  let lastError: MusicApiError | null = null;
-
-  for (const base of API_BASES) {
-    try {
-      const result = await searchSongsOn(base, query, limit, page);
-      return { ...result, songs: dedupeSongs(result.songs) };
-    } catch (error) {
-      if (error instanceof MusicApiError && isRetryable(error.status)) {
-        lastError = error;
-        continue;
-      }
-      throw error;
-    }
-  }
-
-  // No configured mirror answered — try JioSaavn directly before giving up.
-  try {
-    const result = await searchSongsDirect(query, limit, page);
-    return { ...result, songs: dedupeSongs(result.songs) };
-  } catch (directError) {
-    if (lastError?.status === 429) {
-      throw new MusicApiError(
-        "All music sources are rate limited right now — try again in a little while.",
-        429
-      );
-    }
-    throw lastError ?? directError;
-  }
+  const quality = options.quality !== false;
+  const plan = await getSearchPlan(query, quality);
+  const start = (page - 1) * limit;
+  const firstWindow = Math.floor(start / SEARCH_WINDOW) + 1;
+  const lastWindow = Math.floor((start + limit - 1) / SEARCH_WINDOW) + 1;
+  const windows = await Promise.all(Array.from({ length: lastWindow - firstWindow + 1 }, (_, index) => {
+    const window = firstWindow + index;
+    return window === 1 ? plan.first : fetchSearch(plan.source, plan.query, window);
+  }));
+  const ranked = windows.flatMap((result) => quality ? rankSearchResults(result.songs, query) : result.songs);
+  const offset = start % SEARCH_WINDOW;
+  return { songs: dedupeSongs(ranked.slice(offset, offset + limit)), total: plan.first.total };
 }
 
 async function searchSongsOn(
@@ -636,7 +671,7 @@ async function searchSongsOn(
   const response = await fetch(searchUrl, {
     headers: { Accept: "application/json" },
     cache: "no-store",
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(5_000),
   }).catch(() => {
     throw new MusicApiError(
       "Could not reach the music service. Try again shortly.",

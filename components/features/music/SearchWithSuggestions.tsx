@@ -28,10 +28,12 @@ export function SearchWithSuggestions({
   className,
 }: SearchWithSuggestionsProps) {
   const [open, setOpen] = useState(false);
-  const [songs, setSongs] = useState<Song[]>([]);
+  const [result, setResult] = useState<{ query: string; songs: Song[]; failed?: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const query = value.trim();
+  const songs = result?.query === query ? result.songs : [];
+  const pending = loading || result?.query !== query;
 
   useEffect(() => {
     if (!open) return;
@@ -39,16 +41,16 @@ export function SearchWithSuggestions({
     const timer = window.setTimeout(() => {
       setLoading(true);
       const search = query.length >= 2 ? query : "trending songs";
-      fetch(`/api/music/search?q=${encodeURIComponent(search)}&limit=6`, {
+      fetch(`/api/music/search?q=${encodeURIComponent(search)}&limit=6&mode=${query.length >= 2 ? "search" : "browse"}`, {
         signal: controller.signal,
         cache: "no-store",
       })
         .then((response) => (response.ok ? response.json() : null))
         .then((data: { songs?: Song[] } | null) => {
-          if (!controller.signal.aborted) setSongs((data?.songs ?? []).slice(0, 6));
+          if (!controller.signal.aborted) setResult({ query, songs: (data?.songs ?? []).slice(0, 6), failed: data === null });
         })
         .catch(() => {
-          /* keep the previous tray instead of flashing empty */
+          if (!controller.signal.aborted) setResult({ query, songs: [], failed: true });
         })
         .finally(() => {
           if (!controller.signal.aborted) setLoading(false);
@@ -104,15 +106,15 @@ export function SearchWithSuggestions({
       {open ? (
         <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-separator bg-surface shadow-pop">
           <p className="px-3.5 pb-1.5 pt-2.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-faint-foreground">
-            {query.length >= 2 ? "Songs" : "Trending near you"}
+            {query.length >= 2 ? "Best matches" : "Trending near you"}
           </p>
           <div className="max-h-80 overflow-y-auto pb-1">
-            {loading && !songs.length ? (
+            {pending && !songs.length ? (
               <p className="px-3.5 py-4 text-xs text-muted">Searching…</p>
             ) : null}
-            {!loading && !songs.length ? (
+            {!pending && !songs.length ? (
               <p className="px-3.5 py-4 text-xs text-muted">
-                {query.length >= 2 ? "No matches yet — keep typing." : "Nothing trending right now."}
+                {result?.failed ? "Search is unavailable. Please try again." : query.length >= 2 ? "No matches yet — keep typing." : "Nothing trending right now."}
               </p>
             ) : null}
             {songs.map((song) => (

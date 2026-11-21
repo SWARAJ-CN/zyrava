@@ -1,5 +1,6 @@
 import { matchesRegions, matchesVibe, type Vibe } from "@/components/features/music/filters";
 import type { Song } from "@/lib/saavn";
+import { rankSearchResults } from "./search-relevance";
 
 /** Words in a free-text query, lowercased and stripped of punctuation. */
 function queryWords(query: string): string[] {
@@ -29,6 +30,9 @@ export interface RankingContext {
  *    still appear at the end if there is room
  */
 export function rankSongs(songs: Song[], context: RankingContext = {}): Song[] {
+  // Search intent outranks diversity and browsing preferences. Do not demote
+  // exact artist matches or promote covers merely to spread artists around.
+  if (context.query?.trim()) return rankSearchResults(songs, context.query);
   const words = queryWords(context.query ?? "");
   const vibes = context.vibes ?? [];
   const regions = context.regionLabels ?? [];

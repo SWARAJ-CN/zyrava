@@ -115,6 +115,7 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
     if (response.status === 401 && options.auth !== false) {
       const refreshed = await refreshSession();
       if (refreshed) return apiFetch<T>(path, { ...options, retried: true });
+      reportSessionExpired();
     }
   }
 
@@ -172,21 +173,23 @@ export interface RegisterInput {
 }
 
 export async function loginRequest(input: LoginInput): Promise<AuthUser> {
-  const session = await apiFetch<SessionPayload>("/api/auth/login", {
+  const session = await apiFetch<SessionPayload | EmailChallenge>("/api/auth/login", {
     method: "POST",
     body: input,
     auth: false,
   });
+  if ("requiresOtp" in session) throw new OtpRequiredError(session);
   setAccessToken(session.accessToken);
   return session.user;
 }
 
 export async function registerRequest(input: RegisterInput): Promise<AuthUser> {
-  const session = await apiFetch<SessionPayload>("/api/auth/register", {
+  const session = await apiFetch<SessionPayload | EmailChallenge>("/api/auth/register", {
     method: "POST",
     body: input,
     auth: false,
   });
+  if ("requiresOtp" in session) throw new OtpRequiredError(session);
   setAccessToken(session.accessToken);
   return session.user;
 }
@@ -197,4 +200,44 @@ export async function logoutRequest(): Promise<void> {
   } finally {
     setAccessToken(null);
   }
+}
+
+export interface EmailChallenge {
+  requiresOtp: true;
+  challengeId: string;
+  purpose: "login" | "reset";
+  destination?: string;
+  expiresIn: number;
+  resendAfter: number;
+}
+export class OtpRequiredError extends Error {
+  constructor(readonly challenge: EmailChallenge) {
+    super("Verify your email to continue.");
+    this.name = "OtpRequiredError";
+  }
+}
+export async function verifyEmailOtpRequest(challengeId: string, code: string): Promise<AuthUser> {
+  const session = await apiFetch<SessionPayload>("/api/auth/email/verify", {
+    method: "POST", auth: false, body: { challengeId, code },
+  });
+  setAccessToken(session.accessToken);
+  return session.user;
+}
+export const resendEmailOtp = (challengeId: string, purpose: "login" | "reset") =>
+  apiFetch<EmailChallenge>("/api/auth/email/resend", { method: "POST", auth: false, body: { challengeId, purpose } });
+export const requestPasswordReset = (email: string) =>
+  apiFetch<EmailChallenge>("/api/auth/password/request", { method: "POST", auth: false, body: { email } });
+export const verifyPasswordReset = (challengeId: string, code: string) =>
+  apiFetch<{ resetToken: string }>("/api/auth/password/verify", { method: "POST", auth: false, body: { challengeId, code } });
+export const finishPasswordReset = (resetToken: string, password: string) =>
+  apiFetch<{ message: string }>("/api/auth/password/reset", { method: "POST", auth: false, body: { resetToken, password } });
+
+const expiredListeners = new Set<() => void>();
+export function subscribeSessionExpired(listener: () => void) {
+  expiredListeners.add(listener);
+  return () => { expiredListeners.delete(listener); };
+}
+function reportSessionExpired() {
+  setAccessToken(null);
+  expiredListeners.forEach((listener) => listener());
 }

@@ -10,7 +10,7 @@ import { useCustomization } from "@/components/providers/CustomizationProvider";
 import { CustomizationAnimation } from "@/components/features/customization/CustomizationAnimation";
 import { PersonalDedication } from "@/components/PersonalDedication";
 
-const PUBLIC_ROUTES = new Set(["/login", "/register"]);
+const PUBLIC_ROUTES = new Set(["/login", "/register", "/forgot-password"]);
 
 /* The personal welcome uses the player immediately. Standard accounts load it
    only when the wait is long enough to indicate a sleeping server. */

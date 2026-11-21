@@ -17,7 +17,7 @@ import { Icon } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/components/providers/AuthProvider";
 
-const PUBLIC_ROUTES = new Set(["/login", "/register"]);
+const PUBLIC_ROUTES = new Set(["/login", "/register", "/forgot-password"]);
 
 /** The app gets a moment on screen before it asks anything — the same beat the
  *  download offer uses, so a visitor hears about music first, never twice. */

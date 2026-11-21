@@ -339,6 +339,7 @@ export default function MusicPage() {
         q: candidate.queries[0],
         page: String(1 + ((carouselDay + index * 5) % 12)),
         limit: "12",
+        mode: "browse",
       });
       fetch(`/api/music/search?${params.toString()}`)
         .then((response) => response.json())
@@ -374,15 +375,8 @@ export default function MusicPage() {
     // · no vibes: the region's own queries as before.
     const combos: Array<{ query: string; page: number }> = [];
     if (freeText) {
-      // A typed phrase is the query. Checked vibes narrow it; checked
-      // languages only re-rank the results below.
-      if (activeVibes.length) {
-        for (const vibe of activeVibes) {
-          combos.push({ query: `${freeText} ${vibe.queries[0]}`, page: firstPage + batch });
-        }
-      } else {
-        combos.push({ query: freeText, page: firstPage + batch });
-      }
+      // Preserve exact search intent; browsing moods must not rewrite a song title.
+      combos.push({ query: freeText, page: firstPage + batch });
     } else {
       for (const activeRegion of activeRegions) {
         if (!activeVibes.length) {
@@ -414,6 +408,7 @@ export default function MusicPage() {
         q: query,
         page: String(page),
         limit: String(PAGE_SIZE),
+        mode: freeText ? "search" : "browse",
       });
       return fetch(`/api/music/search?${params.toString()}`, {
         signal: controller.signal,

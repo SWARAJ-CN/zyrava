@@ -45,7 +45,7 @@ export async function getTrendingSlides(): Promise<TrendingSlide[]> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.slides;
 
   const results = await Promise.all(
-    QUERIES.map((query) => withTimeout(searchSongs(query, 6, 1), 2_500))
+    QUERIES.map((query) => withTimeout(searchSongs(query, 6, 1, { quality: false }), 2_500))
   );
 
   const seen = new Set<string>();
