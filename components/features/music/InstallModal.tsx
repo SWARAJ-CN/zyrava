@@ -44,7 +44,9 @@ export function InstallModal() {
     } catch {
       /* storage off keeps the asking standing */
     }
-    const timer = window.setTimeout(() => setOpen(true), ARRIVE_DELAY);
+    const timer = window.setTimeout(() => {
+      if (!document.querySelector('dialog[open], [aria-modal="true"]')) setOpen(true);
+    }, ARRIVE_DELAY);
     return () => window.clearTimeout(timer);
   }, [installed]);
 
@@ -174,7 +176,9 @@ function OpenAppModal() {
       /* storage off leaves the offer standing */
     }
     if (dismissed) return;
-    const timer = window.setTimeout(() => setOpen(true), ARRIVE_DELAY + 600);
+    const timer = window.setTimeout(() => {
+      if (!document.querySelector('dialog[open], [aria-modal="true"]')) setOpen(true);
+    }, ARRIVE_DELAY + 600);
     return () => window.clearTimeout(timer);
   }, [installed]);
 

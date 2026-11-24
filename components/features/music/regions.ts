@@ -14,7 +14,7 @@ export const REGIONS: Region[] = [
   {
     label: "Mix",
     queries: ["top english hits", "hindi songs", "tamil songs", "malayalam songs"],
-    hint: "A fresh mix of languages",
+    hint: "",
     tone: "var(--chart-1)",
   },
   {

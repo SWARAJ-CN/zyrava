@@ -1190,14 +1190,12 @@ button[type="button"] {
 @media (max-width:600px) { .support-page { padding:.5rem .65rem 2rem; } .support-nav { gap:.2rem; padding-bottom:1rem; } .support-nav a { padding:.65rem .6rem; } .support-nav .support-back { margin-left:0; } .support-layout { padding:.5rem 0; } .support-mug { width:112px; height:112px; border-radius:28px; margin-bottom:1.5rem; } .support-mug > svg { width:64px; height:64px; } .support-reasons { grid-template-columns:1fr; gap:1rem; } .support-signoff { margin-top:1.5rem; } }
 @media (prefers-reduced-motion:reduce) { .support-amounts label { transition:none; } .support-amounts label:hover { transform:none; } }
 
-/* Installed player spans the window; retain landscape notch clearance. */
-@media (display-mode: standalone), (display-mode: minimal-ui) {
-  .sticky-player-width.dock-offset {
-    max-width: none;
-    margin-inline: 0;
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
-  }
+/* Full-width player in browsers and PWAs, with landscape notch clearance. */
+.sticky-player-width {
+  max-width: none;
+  margin-inline: 0;
+  padding-left: max(8px, env(safe-area-inset-left, 0px));
+  padding-right: max(8px, env(safe-area-inset-right, 0px));
 }
 
 /* Override the global panel scrollbar styling on swipeable navigation rows. */
@@ -1285,4 +1283,43 @@ button[type="button"] {
   .fullscreen-reader-dialog .dance-mode-track { width: 22px; height: 12px; padding: 2px; flex-shrink: 0; }
   .fullscreen-reader-dialog .dance-mode-track > span { width: 8px; height: 8px; }
   .fullscreen-reader-dialog .dance-mode-toggle[aria-checked="true"] .dance-mode-track > span { transform: translateX(10px); }
+}
+
+
+/* Sidebar surfaces follow each listener's existing theme. */
+.sidebar-shell {
+  background: linear-gradient(165deg, color-mix(in srgb, var(--accent) 4%, var(--dock-bg)) 0%, var(--dock-bg) 45%);
+}
+.sidebar-nav-active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.sidebar-nav-active::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  border-radius: 99px;
+  background: var(--accent);
+  transform: translateY(-50%);
+}
+/* Hide the chrome, retaining wheel, touch and keyboard scrolling. */
+.sidebar-shell .dock-scroll,
+aside[aria-label="Now playing"] { scrollbar-width: none; scrollbar-gutter: auto; }
+.sidebar-shell .dock-scroll::-webkit-scrollbar,
+aside[aria-label="Now playing"]::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.sidebar-brand { padding-top: .25rem; padding-bottom: .25rem; }
+
+/* Community uses solid, readable surfaces and a safe-area aware app shell. */
+.community-shell { padding-top: env(safe-area-inset-top, 0px); }
+.community-header { background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 7%, var(--background)), var(--background)); }
+.community-thread { background: color-mix(in srgb, var(--surface-secondary) 35%, var(--background)); }
+.community-composer { padding-bottom: max(.75rem, env(safe-area-inset-bottom, 0px)); }
+.community-list { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.community-messages { scrollbar-width: thin; }
+.community-dialog::backdrop { background: var(--background); }
+@media (prefers-reduced-motion: no-preference) {
+  .community-shell { animation: community-enter .18s ease-out; }
+  @keyframes community-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 }

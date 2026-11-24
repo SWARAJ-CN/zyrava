@@ -11,6 +11,9 @@ import {
   type ReactNode,
 } from "react";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { createOnlineNoticeGate, ONLINE_NOTICE, OPEN_COMMUNITY_MESSAGE, showOnlineSystemNotice } from "@/lib/community-online-notice";
+import { createMessageChime } from "@/lib/message-chime";
+import { mergeMessage, applyReadReceipt } from "@/lib/community-messages";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
   MAX_CHAT_MESSAGE,
@@ -28,6 +31,7 @@ import {
   type ConversationItem,
   type MessageItem,
   type RequestItem,
+  type ReadReceipt,
 } from "@/lib/community";
 import {
   connectCommunity,
@@ -62,6 +66,8 @@ const NO_MAP: MessageMap = {};
 
 interface CommunityContextValue {
   chatOpen: boolean;
+  messageSoundEnabled: boolean;
+  toggleMessageSound: () => void;
   /** Unread messages plus requests waiting on an answer. */
   badge: number;
   connected: boolean;
@@ -92,17 +98,6 @@ interface CommunityContextValue {
 
 const CommunityContext = createContext<CommunityContextValue | null>(null);
 
-/** Insert or replace by server id, then by the sender's optimistic id. */
-function mergeMessage(list: MessageItem[], incoming: MessageItem): MessageItem[] {
-  const index = list.findIndex(
-    (item) => item.id === incoming.id || (!!incoming.clientId && item.clientId === incoming.clientId)
-  );
-  if (index === -1) return [...list, incoming];
-  const next = [...list];
-  next[index] = { ...incoming, pending: false };
-  return next;
-}
-
 function applyPresence(conversation: ConversationItem, online: boolean, lastSeenAt: string | null): ConversationItem {
   return { ...conversation, user: { ...conversation.user, online, lastSeenAt } };
 }
@@ -113,6 +108,40 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
   const authenticated = status === "authenticated" && !!user && !personalExperience;
 
   const [chatOpen, setChatOpen] = useState(false);
+  const [messageSoundEnabled, setMessageSoundEnabled] = useState(true);
+  const messageSoundEnabledRef = useRef(true);
+  const messageChimeRef = useRef<ReturnType<typeof createMessageChime> | null>(null);
+  const receivedIdsRef = useRef(new Set<string>());
+  const onlineNoticeRef = useRef<ReturnType<typeof createOnlineNoticeGate> | null>(null);
+  const openChatActionRef = useRef<() => void>(() => {});
+  const pendingCommunityOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    const chime = createMessageChime();
+    messageChimeRef.current = chime;
+    try { messageSoundEnabledRef.current = localStorage.getItem("zyrava:message-sound") !== "off"; } catch { /* Device storage is optional. */ }
+    const timer = window.setTimeout(() => setMessageSoundEnabled(messageSoundEnabledRef.current), 0);
+    const unlock = () => { if (messageSoundEnabledRef.current) chime.unlock(); };
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      chime.dispose();
+      if (messageChimeRef.current === chime) messageChimeRef.current = null;
+    };
+  }, [authenticated]);
+
+  const toggleMessageSound = useCallback(() => {
+    const enabled = !messageSoundEnabledRef.current;
+    messageSoundEnabledRef.current = enabled;
+    setMessageSoundEnabled(enabled);
+    if (enabled) messageChimeRef.current?.unlock();
+    else messageChimeRef.current?.stop();
+    try { localStorage.setItem("zyrava:message-sound", enabled ? "on" : "off"); } catch { /* Device storage is optional. */ }
+  }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
@@ -152,9 +181,15 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
   const typingTimers = useRef<Map<string, number>>(new Map());
   const lastTypingSent = useRef(0);
   const searchTimer = useRef<number | null>(null);
+  const readInFlightRef = useRef(new Set<string>());
+  const seenIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     userIdRef.current = currentId;
+    seenIdsRef.current.clear();
+    receivedIdsRef.current.clear();
+    onlineNoticeRef.current = currentId ? createOnlineNoticeGate(currentId) : null;
+    readInFlightRef.current.clear();
   }, [currentId]);
   useEffect(() => {
     chatOpenRef.current = chatOpen;
@@ -186,6 +221,74 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const receiveReadReceipt = useCallback((receipt: ReadReceipt, readerId: string) => {
+    if (!Array.isArray(receipt.messageIds)) return;
+    const ownRead = readerId === userIdRef.current;
+    receipt.messageIds.forEach((id) => seenIdsRef.current.add(id));
+    setMessagesFor(receipt.conversationId, (list) => applyReadReceipt(list, receipt.messageIds, ownRead));
+    // A peer reading our messages must never clear our unread incoming messages.
+    if (ownRead) {
+      setConversations((list) => list.map((thread) => thread.id === receipt.conversationId ? { ...thread, unread: receipt.unread } : thread));
+      const owner = userIdRef.current;
+      void fetchSummary().then((summary) => {
+        if (userIdRef.current === owner) setRemoteUnread(summary.unread);
+      }).catch(() => undefined);
+    }
+  }, [setMessagesFor]);
+
+  // Read only messages loaded into an open, foreground conversation. Resume
+  // on focus; being connected or playing music in the background is not Seen.
+  useEffect(() => {
+    if (!ready || !chatOpen || !viewActiveId) return;
+    const owner = currentId;
+    const acknowledge = () => {
+      if (document.hidden || !document.hasFocus()) return;
+      const ids = (viewMessageMap[viewActiveId] ?? [])
+        .filter((message) => !message.mine && !message.seen && !message.pending && !message.failed && !readInFlightRef.current.has(message.id))
+        .slice(0, 100).map((message) => message.id);
+      if (!ids.length) return;
+      ids.forEach((id) => readInFlightRef.current.add(id));
+      void markConversationRead(viewActiveId, ids).then((receipt) => {
+        if (receipt && userIdRef.current === owner) receiveReadReceipt(receipt, owner!);
+      }).catch(() => undefined).finally(() => {
+        ids.forEach((id) => readInFlightRef.current.delete(id));
+      });
+    };
+    acknowledge();
+    window.addEventListener("focus", acknowledge);
+    document.addEventListener("visibilitychange", acknowledge);
+    return () => {
+      window.removeEventListener("focus", acknowledge);
+      document.removeEventListener("visibilitychange", acknowledge);
+    };
+  }, [ready, chatOpen, currentId, viewActiveId, viewMessageMap, connected, receiveReadReceipt]);
+
+  // Refresh persisted receipts after reopening, reconnecting, or returning from
+  // the background. Merge with pushes so late HTTP responses cannot undo Seen.
+  useEffect(() => {
+    if (!ready || !chatOpen || !viewActiveId) return;
+    const owner = currentId;
+    let disposed = false;
+    const refresh = () => {
+      if (document.hidden) return;
+      void fetchMessages(viewActiveId).then((rows) => {
+        if (disposed || userIdRef.current !== owner) return;
+        setMessagesFor(viewActiveId, (list) => rows.reduce((merged, row) => mergeMessage(merged, { ...row, seen: row.seen || seenIdsRef.current.has(row.id) }), list)
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+      }).catch((cause: Error) => {
+        if (!disposed) setError(cause?.message ?? "That thread will not open.");
+      });
+    };
+    refresh();
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [ready, chatOpen, viewActiveId, currentId, connected, setMessagesFor]);
+
   const refreshThreads = useCallback(async (owner: string) => {
     const [threads, inbox] = await Promise.all([fetchConversations(), fetchRequests()]);
     // A read that lands after an account switch belongs to nobody here.
@@ -215,6 +318,8 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     off.push(
       onCommunityEvent("presence:init", (payload) => {
         const { online } = payload as { online: string[] };
+        // Reconnect is a baseline, never a burst of new arrivals.
+        onlineNoticeRef.current?.snapshot(online);
         // Your own tab is not information about anybody else.
         setOnlineIds(new Set(online.filter((id) => id !== userIdRef.current)));
       })
@@ -228,6 +333,14 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
           lastSeenAt: string | null;
         };
         if (userId === userIdRef.current) return;
+        if (onlineNoticeRef.current?.update(userId, online, chatOpenRef.current && !document.hidden)) {
+          toast.toast({
+            ...ONLINE_NOTICE,
+            variant: "info",
+            action: { label: "Open Community", onPress: () => openChatActionRef.current() },
+          });
+          if (document.hidden) void showOnlineSystemNotice();
+        }
         setOnlineIds((current) => {
           const next = new Set(current);
           if (online) next.add(userId);
@@ -248,15 +361,18 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     off.push(
       onCommunityEvent("message:new", (payload) => {
         const { message } = payload as { message: MessageItem };
+        const duplicate = receivedIdsRef.current.has(message.id);
+        receivedIdsRef.current.add(message.id);
+        if (receivedIdsRef.current.size > 256) receivedIdsRef.current.delete(receivedIdsRef.current.values().next().value!);
         setMessagesByConversation((current) => {
           const list = current[message.conversationId] ?? [];
-          return { ...current, [message.conversationId]: mergeMessage(list, message) };
+          return { ...current, [message.conversationId]: mergeMessage(list, { ...message, seen: message.seen || seenIdsRef.current.has(message.id) }) };
         });
 
         // A thread that is not on screen keeps its counter honest.
-        const open = chatOpenRef.current;
+        const open = chatOpenRef.current && !document.hidden && document.hasFocus();
         const viewing = activeIdRef.current === message.conversationId;
-        if (!message.mine) {
+        if (!message.mine && !duplicate) {
           const thread = conversationsRef.current.find((item) => item.id === message.conversationId);
           setConversations((current) =>
             current.map((thread) =>
@@ -267,8 +383,9 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
                   : thread
             )
           );
-          if (!open) {
-            setRemoteUnread((count) => count + 1);
+          if (!open || !viewing) {
+            if (!open) setRemoteUnread((count) => count + 1);
+            if (messageSoundEnabledRef.current) messageChimeRef.current?.play();
             toast.toast({
               title: thread?.user.name ?? "A listener",
               description: message.text.slice(0, 120),
@@ -301,11 +418,8 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
 
     off.push(
       onCommunityEvent("conversation:read", (payload) => {
-        const { conversationId, readerId } = payload as { conversationId: string; readerId: string };
-        if (readerId === userIdRef.current) return;
-        setConversations((current) =>
-          current.map((thread) => (thread.id === conversationId ? { ...thread, unread: 0 } : thread))
-        );
+        const receipt = payload as ReadReceipt & { readerId: string };
+        receiveReadReceipt(receipt, receipt.readerId);
       })
     );
 
@@ -372,7 +486,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       timers.forEach((timer) => window.clearTimeout(timer));
       timers.clear();
     };
-  }, [authenticated, setMessagesFor, toast]);
+  }, [authenticated, setMessagesFor, toast, receiveReadReceipt]);
 
   /* ---------- connect / resync ---------- */
 
@@ -423,6 +537,10 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
 
   const openChat = useCallback(() => {
     if (!currentId) return;
+    if (!chatOpenRef.current) {
+      window.history.pushState({ ...window.history.state, zyravaCommunity: { threadId: null, owner: currentId } }, "");
+    }
+    chatOpenRef.current = true;
     setChatOpen(true);
     setLoading(true);
     setError(null);
@@ -438,10 +556,58 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, [currentId, refreshThreads]);
 
+  useEffect(() => {
+    openChatActionRef.current = openChat;
+  }, [openChat]);
+
   const closeChat = useCallback(() => {
+    const entry = window.history.state?.zyravaCommunity;
+    if (entry) window.history.go(entry.threadId ? -2 : -1);
+    chatOpenRef.current = false;
     setChatOpen(false);
     setActiveId(null);
   }, []);
+
+  // The room and its conversation are real Back steps, including Android's
+  // system gesture. Preserve Next's history state and the underlying URL.
+  useEffect(() => {
+    // A reload starts on the music page; do not inherit an orphan overlay entry.
+    if (window.history.state?.zyravaCommunity) {
+      const state = { ...window.history.state };
+      delete state.zyravaCommunity;
+      window.history.replaceState(state, "");
+    }
+    const onBack = () => {
+      const entry = window.history.state?.zyravaCommunity;
+      const open = Boolean(entry && entry.owner === userIdRef.current && userIdRef.current);
+      chatOpenRef.current = open;
+      setChatOpen(open);
+      setActiveId(open ? entry.threadId : null);
+    };
+    window.addEventListener("popstate", onBack);
+    return () => window.removeEventListener("popstate", onBack);
+  }, []);
+
+  // A tray notification focuses the existing player, keeping its audio alive.
+  // A fresh window consumes the same intent from a non-identifying URL flag.
+  useEffect(() => {
+    const openRequested = () => {
+      if (!currentId) { pendingCommunityOpenRef.current = true; return; }
+      pendingCommunityOpenRef.current = false;
+      openChat();
+    };
+    const onNotification = (event: MessageEvent) => {
+      if (event.data?.type === OPEN_COMMUNITY_MESSAGE) openRequested();
+    };
+    navigator.serviceWorker?.addEventListener("message", onNotification);
+    const url = new URL(window.location.href);
+    if (currentId && (pendingCommunityOpenRef.current || url.searchParams.get("community") === "1")) {
+      url.searchParams.delete("community");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+      openRequested();
+    }
+    return () => navigator.serviceWorker?.removeEventListener("message", onNotification);
+  }, [currentId, openChat]);
 
   const searchPeople = useCallback((query: string) => {
     const owner = userIdRef.current;
@@ -460,23 +626,20 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
 
   const selectConversation = useCallback(
     (conversationId: string | null) => {
+      const entry = window.history.state?.zyravaCommunity;
+      if (entry) {
+        if (!conversationId && entry.threadId) window.history.back();
+        else if (conversationId && entry.threadId !== conversationId) {
+          const state = { ...window.history.state, zyravaCommunity: { threadId: conversationId, owner: userIdRef.current } };
+          if (entry.threadId) window.history.replaceState(state, "");
+          else window.history.pushState(state, "");
+        }
+      }
       setActiveId(conversationId);
       if (!conversationId) return;
 
-      setConversations((current) =>
-        current.map((thread) => (thread.id === conversationId ? { ...thread, unread: 0 } : thread))
-      );
-
-      if (!messagesByConversation[conversationId]) {
-        setLoading(true);
-        fetchMessages(conversationId)
-          .then((rows) => setMessagesFor(conversationId, () => rows))
-          .catch((cause: Error) => setError(cause?.message ?? "That thread will not open."))
-          .finally(() => setLoading(false));
-      }
-      void markConversationRead(conversationId);
     },
-    [messagesByConversation, setMessagesFor]
+    []
   );
 
   const loadOlder = useCallback(() => {
@@ -491,7 +654,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
         if (!older.length) return;
         setMessagesFor(activeId, (current) => {
           const known = new Set(current.map((item) => item.id));
-          return [...older.filter((item) => !known.has(item.id)), ...current];
+          return [...older.filter((item) => !known.has(item.id)).map((item) => ({ ...item, seen: item.seen || seenIdsRef.current.has(item.id) })), ...current];
         });
       })
       .catch(() => undefined)
@@ -502,7 +665,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     async (conversationId: string, text: string, clientId: string) => {
       try {
         const saved = await postMessage(conversationId, text, clientId);
-        setMessagesFor(conversationId, (current) => mergeMessage(current, { ...saved, pending: false }));
+        setMessagesFor(conversationId, (current) => mergeMessage(current, { ...saved, pending: false, seen: saved.seen || seenIdsRef.current.has(saved.id) }));
         return true;
       } catch (cause) {
         setMessagesFor(conversationId, (current) =>
@@ -566,7 +729,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       );
       setPeopleQuery("");
       void fetchPeople("").then(setPeople).catch(() => undefined);
-      setActiveId(conversation.id);
+      selectConversation(conversation.id);
       return;
     }
     setPeople((current) =>
@@ -578,7 +741,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
         : { ...current, outgoing: [...current.outgoing, ...(result.request ? [result.request] : [])] }
     );
     setRemoteRequests((count) => count + 1);
-  }, []);
+  }, [selectConversation]);
 
   const respondTo = useCallback(
     async (requestId: string, accept: boolean) => {
@@ -594,11 +757,11 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
         setConversations((current) =>
           current.some((thread) => thread.id === conversation.id) ? current : [conversation, ...current]
         );
-        setActiveId(conversation.id);
+        selectConversation(conversation.id);
       }
       void fetchPeople("").then(setPeople).catch(() => undefined);
     },
-    []
+    [selectConversation]
   );
 
   const reportTyping = useCallback(() => {
@@ -630,6 +793,8 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
   const value = useMemo<CommunityContextValue>(
     () => ({
       chatOpen,
+      messageSoundEnabled,
+      toggleMessageSound,
       badge,
       connected: ready && connected,
       loading,
@@ -660,6 +825,8 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       activeConversation,
       badge,
       chatOpen,
+      messageSoundEnabled,
+      toggleMessageSound,
       connected,
       error,
       loading,

@@ -31,7 +31,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { VIBES } from "@/components/features/music/filters";
 import { REGIONS } from "@/components/features/music/regions";
 import { rankSongs } from "@/lib/recommend";
-import { mixFeedPools } from "@/lib/feed-mix";
+import { mixFeedPools, pickFreshTrending, readMixHistory, MIX_HISTORY_KEY } from "@/lib/feed-mix";
 import { Waveform } from "@/components/features/music/Waveform";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import { useLibrary } from "@/components/providers/LibraryProvider";
@@ -435,9 +435,14 @@ export default function MusicPage() {
         });
     };
 
-    // Pages load in parallel; failed ones simply contribute no tracks.
-    Promise.all(combos.map(({ query, page }) => fetchPage(query, page)))
-      .then((responses) => {
+    const trendingFirst = !freeText && batch === 0 && activeVibes.length === 0 &&
+      activeRegions.some((region) => region.label === "Mix");
+    const trends = trendingFirst ? fetch("/api/music/mix", { signal: controller.signal })
+          .then(async (response) => response.ok ? (await response.json()).songs as Song[] : [])
+          .catch(() => [] as Song[]) : Promise.resolve([] as Song[]);
+    // Keep the discovery pool available if any chart service is unavailable.
+    Promise.all([Promise.all(combos.map(({ query, page }) => fetchPage(query, page))), trends])
+      .then(([responses, trendingSongs]) => {
         if (requestRef.current !== requestId) return;
 
         /** One deduped list per combo, in combo order for interleaving. */
@@ -461,7 +466,7 @@ export default function MusicPage() {
           }
         });
 
-        if (!usableByPosition.some((list) => list.length > 0) && failure) {
+        if (!trendingSongs.length && !usableByPosition.some((list) => list.length > 0) && failure) {
           throw new Error(failure);
         }
 
@@ -475,11 +480,18 @@ export default function MusicPage() {
           : activeRegions.map((candidate) => candidate.label);
         const isMix = !freeText && activeRegions.some((region) => region.label === "Mix");
         const pooled = isMix ? mixFeedPools(usableByPosition) : usableByPosition.flat();
-        const selected = rankSongs(dedupeSongs(pooled), {
+        const discovery = rankSongs(dedupeSongs(pooled), {
           query: freeText,
           vibes: activeVibes,
           regionLabels: isMix ? [] : regionLabels,
-        }).slice(0, pageSize);
+        });
+        let recent: string[] = [];
+        try { recent = readMixHistory(window.localStorage.getItem(MIX_HISTORY_KEY)); } catch { /* storage unavailable */ }
+        const freshTrends = pickFreshTrending(trendingSongs, recent, pageSize);
+        if (freshTrends.length) {
+          try { window.localStorage.setItem(MIX_HISTORY_KEY, JSON.stringify(freshTrends.map(song => song.id))); } catch { /* storage unavailable */ }
+        }
+        const selected = dedupeSongs([...freshTrends, ...discovery]).slice(0, pageSize);
 
         // The catalogue had nothing at this visit's opening spot — an unusual
         // query with fewer results than the pages skipped. Fall back to its
@@ -494,7 +506,7 @@ export default function MusicPage() {
             response && "total" in response && typeof response.total === "number"
               ? Math.max(sum, response.total)
               : sum,
-          0
+          trendingSongs.length ? (firstPage - 1) * pageSize + trendingSongs.length : 0
         );
 
         setLibrary((prev) =>
@@ -528,6 +540,18 @@ export default function MusicPage() {
     1,
     Math.ceil((library.total - (firstPage - 1) * pageSize) / pageSize)
   );
+
+  // Restoring the player must not leave it in a one-song loop. Keep the saved
+  // song/position intact and queue the visible feed behind it, excluding itself.
+  useEffect(() => {
+    if (isGuest || queueLabel !== "Recently played" || queue.length !== 1 || fetching || error) return;
+    const fresh = songs.filter((song) => song.id !== queue[0].id);
+    if (!fresh.length) return;
+    chain.current = {
+      key: termKey, page: batch, firstId: queue[0].id, turnToken: "", empties: 0,
+    };
+    appendQueue(fresh);
+  }, [isGuest, queueLabel, queue, fetching, error, songs, termKey, batch, appendQueue]);
 
   /* ── Page chaining ───────────────────────────────────────────────────────
    * The last track of a page turns the page, and the fresh ten join the queue
@@ -600,6 +624,9 @@ export default function MusicPage() {
    * its next page instead of looping the same ten or sitting silent. */
   useEffect(() => {
     setQueueEnd(() => {
+      // Next can arrive before the initial feed response. The provider keeps
+      // that advance pending until the restoration effect appends its songs.
+      if (queueLabel === "Recently played" && queue.length === 1 && fetching && !error) return true;
       const active = chain.current;
       if (!active || active.key !== termKey || queue[0]?.id !== active.firstId) return false;
       // The prefetch may already have turned the page before Next was pressed.
@@ -610,7 +637,7 @@ export default function MusicPage() {
       return true;
     });
     return () => setQueueEnd(null);
-  }, [batch, error, fetching, pageCount, setQueueEnd, termKey, queue]);
+  }, [batch, error, fetching, pageCount, setQueueEnd, termKey, queue, queueLabel]);
 
   /** Card heading: a typed phrase leads, then vibes, then the region mix. */
   const libraryTitle = freeText
@@ -622,7 +649,7 @@ export default function MusicPage() {
       : activeRegions.length > 1
         ? "Multi-language mix"
         : isRegion
-          ? activeRegions[0].hint
+          ? activeRegions[0].hint || activeRegions[0].label
           : "Search results";
 
   /** Queue the visible page and hand that run to the page chain, so playback
@@ -984,7 +1011,7 @@ export default function MusicPage() {
                 <span className="block truncate text-sm font-bold text-white drop-shadow">
                   {candidate.label}
                 </span>
-                <span className="block truncate text-[11px] text-white/80">{candidate.hint}</span>
+                {candidate.hint ? <span className="block truncate text-[11px] text-white/80">{candidate.hint}</span> : null}
               </span>
             </button>
           );
@@ -1066,13 +1093,6 @@ export default function MusicPage() {
       <Card id="library-list" className="mt-4 rounded-xl scroll-mt-24">
         <CardHeader
           title={libraryTitle}
-          description={
-            listLoading
-              ? "Loading tracks…"
-              : pageCount > 1
-                ? `${library.total.toLocaleString("en-IN")} tracks · page ${batch + 1} of ${pageCount}`
-                : `${library.total.toLocaleString("en-IN")} tracks`
-          }
           actions={
             fetching ? (
               <div className="flex items-center gap-2 text-xs font-medium text-muted">

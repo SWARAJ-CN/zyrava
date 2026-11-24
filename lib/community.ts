@@ -39,6 +39,8 @@ export interface MessageItem {
   clientId: string;
   createdAt: string;
   mine: boolean;
+  /** Confirmed by the server when the other participant has read this message. */
+  seen?: boolean;
   /** Local-only: an optimistic bubble the server has not confirmed. */
   pending?: boolean;
   failed?: boolean;
@@ -120,12 +122,19 @@ export async function postMessage(
   return payload.message;
 }
 
-export async function markConversationRead(conversationId: string): Promise<void> {
+export interface ReadReceipt {
+  conversationId: string;
+  messageIds: string[];
+  unread: number;
+}
+
+export async function markConversationRead(conversationId: string, messageIds: string[]): Promise<ReadReceipt | null> {
   try {
-    await apiFetch("/api/community/read", { method: "POST", body: { conversationId } });
+    return await apiFetch<ReadReceipt>("/api/community/read", { method: "POST", body: { conversationId, messageIds } });
   } catch (error) {
     // Read state is cosmetic; a failure here must never look like a lost message.
     if (!(error instanceof ApiError)) throw error;
+    return null;
   }
 }
 

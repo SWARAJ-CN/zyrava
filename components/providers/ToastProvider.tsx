@@ -12,6 +12,7 @@ interface ToastInput {
   title: string;
   description?: string;
   variant?: Variant;
+  action?: { label: string; onPress: () => void };
 }
 
 interface ToastContextValue {
@@ -37,11 +38,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const speech = localeInfo(locale).speech;
 
   const value = useMemo<ToastContextValue>(() => {
-    const show = ({ title, description, variant = "info" }: ToastInput) => {
-      heroToast(title, {
-        description,
+    const show = ({ title, description, variant = "info", action }: ToastInput) => {
+      const activate = () => { heroToast.close(id); action?.onPress(); };
+      const content = action ? (
+        <button type="button" onClick={activate} className="block w-full rounded-lg text-start focus-visible:outline-2 focus-visible:outline-accent">
+          <span className="block font-semibold">{title}</span>
+          {description ? <span className="mt-1 block text-sm font-normal text-muted">{description}</span> : null}
+          <span className="mt-2 block text-xs font-semibold text-brand">{action.label} →</span>
+        </button>
+      ) : title;
+      const id = heroToast(content, {
+        description: action ? undefined : description,
         variant: VARIANT[variant],
-        timeout: variant === "error" ? 6000 : 3500,
+        timeout: action ? 8000 : variant === "error" ? 6000 : 3500,
       });
       /* The voice says what the toast says, so the reader does not have to
          look at the screen to know something went through. */

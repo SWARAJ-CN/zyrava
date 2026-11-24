@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Check, CheckCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/Button";
@@ -11,7 +12,7 @@ import { MAX_CHAT_MESSAGE, type ChatPerson, type MessageItem } from "@/lib/commu
 type Rail = "threads" | "people" | "requests";
 
 const ROW =
-  "flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-start text-[13px] transition-colors";
+  "flex w-full items-start gap-3 rounded-2xl px-3 py-3.5 text-start text-sm transition-colors focus-visible:outline-2 focus-visible:outline-accent";
 
 /** The presence dot every list shares, so green means the same thing anywhere. */
 function Presence({ online, size = "md" }: { online: boolean; size?: "sm" | "md" }) {
@@ -67,7 +68,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 function Avatar({ person }: { person: ChatPerson }) {
   return (
     <span className="relative flex-none">
-      <span className="grid size-9 place-items-center rounded-full bg-surface-secondary text-[13px] font-semibold text-foreground">
+      <span className="grid size-11 place-items-center rounded-2xl bg-accent-soft text-sm font-semibold text-foreground">
         {initials(person.name)}
       </span>
       <span className="absolute -bottom-0.5 -end-0.5 rounded-full bg-background p-[2px]">
@@ -86,6 +87,8 @@ export function ChatPanel() {
   const { user } = useAuth();
   const {
     chatOpen,
+    messageSoundEnabled,
+    toggleMessageSound,
     closeChat,
     connected,
     loading,
@@ -112,26 +115,47 @@ export function ChatPanel() {
   } = useCommunity();
 
   const [rail, setRail] = useState<Rail>("threads");
-  const [draft, setDraft] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draftKey = user && activeId ? `${user.id}:${activeId}` : null;
+  const draft = draftKey ? drafts[draftKey] ?? "" : "";
+  const setDraft = useCallback((text: string) => {
+    if (draftKey) setDrafts((previous) => ({ ...previous, [draftKey]: text }));
+  }, [draftKey]);
+  const [threadQuery, setThreadQuery] = useState("");
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const pinnedRef = useRef(true);
+  const previousThreadRef = useRef<string | null>(null);
+  const olderAnchorRef = useRef<{ height: number; top: number } | null>(null);
   const [sending, setSending] = useState(false);
   const [askBusy, setAskBusy] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Escape closes; the page behind must not scroll while the room is open.
+  // Native dialog contains focus and leaves the audio player mounted behind it.
   useEffect(() => {
-    if (!chatOpen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeChat();
+    const dialog = dialogRef.current;
+    if (!chatOpen || !dialog) return;
+    dialog.showModal();
+    const viewport = window.visualViewport;
+    const resize = () => {
+      dialog.style.height = `${viewport?.height ?? window.innerHeight}px`;
+      dialog.style.top = `${viewport?.offsetTop ?? 0}px`;
+      dialog.style.bottom = "auto";
     };
-    window.addEventListener("keydown", onKey);
+    resize();
+    viewport?.addEventListener("resize", resize);
+    viewport?.addEventListener("scroll", resize);
+    window.addEventListener("resize", resize);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      window.removeEventListener("keydown", onKey);
+      dialog.close();
+      viewport?.removeEventListener("resize", resize);
+      viewport?.removeEventListener("scroll", resize);
+      window.removeEventListener("resize", resize);
       document.body.style.overflow = overflow;
     };
-  }, [chatOpen, closeChat]);
+  }, [chatOpen]);
 
   const unreadThreads = useMemo(
     () => conversations.reduce((total, thread) => total + thread.unread, 0),
@@ -144,15 +168,22 @@ export function ChatPanel() {
     if (!chatOpen || !activeId) return;
     const node = scrollRef.current;
     if (!node) return;
-    const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 160;
-    if (nearBottom) node.scrollTop = node.scrollHeight;
-  }, [messages, chatOpen, activeId, typingUsers.length]);
+    const anchor = olderAnchorRef.current;
+    if (previousThreadRef.current !== activeId) {
+      node.scrollTop = node.scrollHeight;
+      pinnedRef.current = true;
+      olderAnchorRef.current = null;
+    } else if (anchor && !olderLoading) {
+      node.scrollTop = anchor.top + node.scrollHeight - anchor.height;
+      olderAnchorRef.current = null;
+    } else if (pinnedRef.current && !anchor) node.scrollTop = node.scrollHeight;
+    previousThreadRef.current = activeId;
+  }, [messages, chatOpen, activeId, typingUsers.length, olderLoading]);
 
   const onScroll = useCallback(() => {
     const node = scrollRef.current;
-    if (!node || node.scrollTop > 48) return;
-    loadOlder();
-  }, [loadOlder]);
+    if (node) pinnedRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100;
+  }, []);
 
   const submit = useCallback(async () => {
     const text = draft.trim();
@@ -165,7 +196,7 @@ export function ChatPanel() {
       reportTypingStop();
     }
     composerRef.current?.focus();
-  }, [draft, sending, sendText, reportTypingStop]);
+  }, [draft, sending, sendText, reportTypingStop, setDraft]);
 
   const typingLabel = useMemo(() => {
     if (!typingUsers.length) return null;
@@ -196,27 +227,38 @@ export function ChatPanel() {
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
       aria-label="ZYRAVA community chat"
-      className="fixed inset-0 z-50 flex flex-col bg-background"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (activeId) selectConversation(null);
+        else closeChat();
+      }}
+      className="community-dialog fixed inset-0 m-0 h-dvh max-h-none w-full max-w-none border-0 bg-background p-0 text-foreground"
     >
+    <div className="community-shell flex h-full min-h-0 flex-col">
       {/* Head */}
-      <header className="flex h-16 flex-none items-center gap-3 border-b border-dock-line px-3 sm:px-5">
-        <span className="grid size-8 flex-none place-items-center rounded-[0.6rem] bg-accent text-accent-foreground">
-          <Icon name="message" className="size-4" strokeWidth={2.2} />
-        </span>
+      <header className="community-header flex min-h-20 flex-none items-center gap-3 border-b border-dock-line px-4 py-3 sm:px-6">
+        <button type="button" onClick={closeChat} aria-label="Back to music" className="grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-secondary text-foreground transition-colors hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent">
+          <Icon name="chevron-right" className="size-5 rotate-180" />
+        </button>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[12.5px] font-bold uppercase leading-none tracking-[0.22em] text-foreground">
+          <p className="truncate text-lg font-bold leading-tight tracking-tight text-foreground">
             Community
           </p>
-          <p className="mt-1.5 flex items-center gap-1.5 truncate text-[10px] font-medium uppercase leading-none tracking-[0.16em] text-muted">
+          <p className="mt-1 flex items-center gap-1.5 truncate text-xs font-medium leading-normal text-muted">
             <Presence online={connected} size="sm" />
-            {connected ? "Live" : "Reconnecting"}
+            {connected ? "Connected · Keep the conversation going" : "Connecting to your community…"}
           </p>
         </div>
-        <Button variant="ghost" size="icon" onClick={closeChat} title="Close community">
+        <Button variant="ghost" size="icon" onClick={toggleMessageSound}
+          title={messageSoundEnabled ? "Mute message sounds" : "Enable message sounds"}
+          aria-label={messageSoundEnabled ? "Mute message sounds" : "Enable message sounds"}
+          aria-pressed={messageSoundEnabled}>
+          <Icon name={messageSoundEnabled ? "volume-2" : "volume-x"} className="size-4" />
+        </Button>
+        <Button variant="ghost" size="icon" onClick={closeChat} title="Close community" aria-label="Close community">
           <Icon name="x" className="size-4" />
         </Button>
       </header>
@@ -231,25 +273,25 @@ export function ChatPanel() {
         {/* Rail */}
         <section
           className={cn(
-            "min-h-0 w-full flex-col border-e border-dock-line md:flex md:w-[21rem]",
+            "community-list min-h-0 w-full flex-col border-e border-dock-line md:flex md:w-[22rem]",
             activeId ? "hidden" : "flex"
           )}
         >
-          <div className="flex flex-none gap-1 border-b border-dock-line px-2.5 py-2.5">
-            {(["threads", "requests", "people"] as Rail[]).map((entry) => (
+          <div className="community-tabs mx-4 mb-2 mt-4 flex flex-none gap-1 rounded-2xl bg-surface-secondary p-1.5">
+            {(["threads", "people", "requests"] as Rail[]).map((entry) => (
               <button
                 key={entry}
                 type="button"
                 onClick={() => setRail(entry)}
                 aria-pressed={rail === entry}
                 className={cn(
-                  "min-h-8 flex-1 rounded-full px-2.5 text-[11.5px] font-semibold capitalize transition-colors",
+                  "min-h-11 flex-1 rounded-xl px-2 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-accent",
                   rail === entry
                     ? "bg-accent text-accent-foreground"
-                    : "bg-surface-secondary/50 text-muted hover:bg-surface-secondary hover:text-foreground"
+                    : "text-muted hover:bg-background hover:text-foreground"
                 )}
               >
-                {entry}
+                {entry === "threads" ? "Chats" : entry === "people" ? "People" : "Requests"}
                 {railCounts[entry] ? (
                   <span className="ms-1.5 tabular-nums">{railCounts[entry]}</span>
                 ) : null}
@@ -272,10 +314,10 @@ export function ChatPanel() {
                     onChange={(event) => searchPeople(event.target.value)}
                     placeholder="Find another listener"
                     aria-label="Find another listener"
-                    className="h-10 w-full rounded-xl border border-dock-line bg-surface-secondary/40 ps-9 pe-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-faint-foreground focus:border-brand"
+                    className="h-12 w-full rounded-xl border border-dock-line bg-surface-secondary/40 ps-9 pe-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-faint-foreground focus:border-brand"
                   />
                 </label>
-                <SectionTitle>On the dock</SectionTitle>
+                <SectionTitle>Find your people</SectionTitle>
                 {people.map((person) => (
                   <div key={person.id} className={cn(ROW, "text-foreground")}>
                     <Avatar person={person} />
@@ -381,9 +423,14 @@ export function ChatPanel() {
 
             {rail === "threads" ? (
               <div className="flex flex-col gap-1">
-                <SectionTitle>Threads</SectionTitle>
+                <label className="relative mb-4 block">
+                  <Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+                  <input type="search" value={threadQuery} onChange={(event) => setThreadQuery(event.target.value)} placeholder="Search your chats" aria-label="Search your chats" className="h-12 w-full rounded-xl border border-dock-line bg-surface-secondary/40 ps-10 pe-3 text-sm outline-none focus:border-brand" />
+                </label>
+                <SectionTitle>Your conversations</SectionTitle>
+                {conversations.length > 0 && !conversations.some((thread) => thread.user.name.toLowerCase().includes(threadQuery.trim().toLowerCase())) ? <p className="px-3 py-6 text-sm text-muted">No chats match “{threadQuery}”.</p> : null}
                 {conversations.length ? (
-                  conversations.map((thread) => (
+                  conversations.filter((thread) => thread.user.name.toLowerCase().includes(threadQuery.trim().toLowerCase())).map((thread) => (
                     <button
                       key={thread.id}
                       type="button"
@@ -392,7 +439,7 @@ export function ChatPanel() {
                       className={cn(
                         ROW,
                         activeId === thread.id
-                          ? "bg-dock-active text-foreground"
+                          ? "bg-accent-soft text-foreground ring-1 ring-inset ring-accent/20"
                           : "text-muted hover:bg-dock-hover hover:text-foreground"
                       )}
                     >
@@ -425,8 +472,8 @@ export function ChatPanel() {
                   ))
                 ) : (
                   <p className="px-2.5 py-6 text-[12px] text-muted">
-                    No threads yet. Find someone on the <strong>People</strong> tab and ask to chat —
-                    a thread opens the moment they accept.
+                    Your next conversation starts here.
+                    <button type="button" onClick={() => setRail("people")} className="mx-auto mt-4 block rounded-xl bg-accent px-5 py-3 font-semibold text-accent-foreground">Find people</button>
                   </p>
                 )}
               </div>
@@ -437,13 +484,13 @@ export function ChatPanel() {
         {/* Thread */}
         <section
           className={cn(
-            "min-h-0 flex-1 flex-col bg-surface-secondary/20 md:flex",
+            "community-thread min-h-0 flex-1 flex-col md:flex",
             activeId ? "flex" : "hidden"
           )}
         >
           {activeConversation ? (
             <>
-              <header className="flex flex-none items-center gap-3 border-b border-dock-line px-3 py-3 sm:px-4">
+              <header className="flex flex-none items-center gap-3 border-b border-dock-line bg-background/90 px-4 py-4 sm:px-6">
                 <button
                   type="button"
                   onClick={() => selectConversation(null)}
@@ -476,11 +523,13 @@ export function ChatPanel() {
               <div
                 ref={scrollRef}
                 onScroll={onScroll}
-                className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5"
+                className="community-messages min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-8"
               >
-                {olderLoading ? (
-                  <p className="pb-3 text-center text-[11px] text-muted">Loading older messages…</p>
-                ) : null}
+                {messages.length ? <div className="mb-4 flex justify-center"><button type="button" disabled={olderLoading} onClick={() => {
+                  const node = scrollRef.current;
+                  if (node) olderAnchorRef.current = { height: node.scrollHeight, top: node.scrollTop };
+                  loadOlder();
+                }} className="rounded-full bg-surface-secondary px-4 py-2 text-xs font-medium text-muted hover:text-foreground disabled:opacity-50">{olderLoading ? "Loading…" : "Earlier messages"}</button></div> : null}
                 {grouped.map((group) => (
                   <div key={group.day} className="flex flex-col gap-2.5">
                     <p className="py-2 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-faint-foreground">
@@ -495,8 +544,8 @@ export function ChatPanel() {
                           className={cn(
                             "max-w-[min(34rem,86%)] rounded-2xl px-3.5 py-2.5",
                             message.mine
-                              ? "bg-accent text-accent-foreground"
-                              : "border border-dock-line bg-background text-foreground"
+                              ? "rounded-br-md bg-accent text-accent-foreground"
+                              : "rounded-bl-md border border-dock-line bg-background text-foreground"
                           )}
                         >
                           <p className="whitespace-pre-wrap break-words text-[13.5px] leading-relaxed">
@@ -519,6 +568,11 @@ export function ChatPanel() {
                               >
                                 failed — retry
                               </button>
+                            ) : message.mine ? (
+                              <span className="inline-flex items-center gap-1 font-medium" aria-label={message.seen ? "Seen" : "Sent"}>
+                                {message.seen ? <CheckCheck className="size-3.5" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
+                                {message.seen ? "Seen" : "Sent"}
+                              </span>
                             ) : null}
                           </p>
                         </div>
@@ -533,7 +587,7 @@ export function ChatPanel() {
                 ) : null}
               </div>
 
-              <footer className="flex-none border-t border-dock-line px-3 py-3 sm:px-4">
+              <footer className="community-composer flex-none border-t border-dock-line bg-background px-4 py-3 sm:px-6">
                 <div className="flex items-end gap-2">
                   <textarea
                     ref={composerRef}
@@ -547,12 +601,12 @@ export function ChatPanel() {
                       reportTyping();
                     }}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
+                      if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                         event.preventDefault();
                         void submit();
                       }
                     }}
-                    className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-dock-line bg-background px-3 py-2.5 text-[13.5px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-faint-foreground focus:border-brand"
+                    className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-dock-line bg-surface-secondary/50 px-4 py-3 text-base leading-relaxed text-foreground outline-none transition-colors placeholder:text-faint-foreground focus:border-brand"
                   />
                   <Button
                     size="icon"
@@ -565,7 +619,7 @@ export function ChatPanel() {
                   </Button>
                 </div>
                 <div className="flex items-center justify-between px-1 pt-1.5 text-[10px] text-faint-foreground">
-                  <span>Enter sends · Shift+Enter starts a line · text only</span>
+                  <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
                   {draft.length > MAX_CHAT_MESSAGE - 200 ? (
                     <span className="tabular-nums">
                       {draft.length}/{MAX_CHAT_MESSAGE}
@@ -579,7 +633,8 @@ export function ChatPanel() {
               <span className="grid size-12 place-items-center rounded-2xl bg-surface-secondary text-muted">
                 <Icon name="message" className="size-5" strokeWidth={1.9} />
               </span>
-              <p className="max-w-[22rem] text-[13px] leading-relaxed text-muted">
+              <h2 className="text-2xl font-semibold tracking-tight">Good music. Better company.</h2>
+              <p className="max-w-[22rem] text-sm leading-relaxed text-muted">
                 {conversations.length
                   ? "Pick a thread to keep the conversation going."
                   : "Find a listener on the People tab and ask to chat. Threads open only once both of you say yes."}
@@ -593,5 +648,6 @@ export function ChatPanel() {
         </section>
       </div>
     </div>
+    </dialog>
   );
 }

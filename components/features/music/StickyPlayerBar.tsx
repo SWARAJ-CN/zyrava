@@ -3,7 +3,7 @@
 import { useAuth } from "@/components/providers/AuthProvider";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icons";
 import { Waveform } from "./Waveform";
 import {
@@ -32,6 +32,7 @@ import { cn } from "@/lib/cn";
 export function StickyPlayerBar() {
   const { personalExperience, personalThemeEnabled } = useAuth();
   const [eqOpen, setEqOpen] = useState(false);
+  const playerCardRef = useRef<HTMLDivElement>(null);
   const [heavyPending, setHeavyPending] = useState<string | null>(null);
   const {
     queue,
@@ -48,7 +49,6 @@ export function StickyPlayerBar() {
     nowPlayingOpen,
     setNowPlayingOpen,
     setLyricsFullscreenOpen,
-    sidebarWide,
     setMixerOpen,
     eqPreset,
     eqGains,
@@ -73,6 +73,30 @@ export function StickyPlayerBar() {
 
   const { isLiked, toggleLike, openPicker } = useLibrary();
   const { requireAuth } = useGuestLock();
+
+  // The desktop dock ends above the bar, including safe-area/bottom spacing.
+  // Observe only the player card: opening EQ must not shrink the sidebar.
+  useEffect(() => {
+    const root = document.documentElement;
+    const card = playerCardRef.current;
+    if (!card) {
+      root.style.removeProperty("--player-bar-height");
+      return;
+    }
+    const measure = () => {
+      const occupied = Math.max(0, window.innerHeight - card.getBoundingClientRect().top);
+      root.style.setProperty("--player-bar-height", `${Math.ceil(occupied)}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    observer?.observe(card);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+      root.style.removeProperty("--player-bar-height");
+    };
+  }, [current?.id]);
 
   if (!current) return null;
 
@@ -238,11 +262,7 @@ export function StickyPlayerBar() {
     <>
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40">
         <div
-          className={cn(
-            "sticky-player-width pointer-events-none mx-auto w-full max-w-[100rem] px-3 pb-3 sm:px-6 lg:px-8",
-            "dock-offset",
-            !sidebarWide && "dock-offset--rail"
-          )}
+          className="sticky-player-width pointer-events-none w-full"
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
         >
           {/* Equalizer + space panel floats above the bar. */}
@@ -349,6 +369,7 @@ export function StickyPlayerBar() {
           ) : null}
 
           <div
+            ref={playerCardRef}
             className={cn(
               "sticky-player-card glass pointer-events-auto relative border border-separator p-2.5 shadow-pop sm:p-0",
               personalThemeEnabled

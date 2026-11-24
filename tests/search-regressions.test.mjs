@@ -135,3 +135,49 @@ test('invalid or missing shared song ids never fall back to another track', asyn
   assert.equal(await api.getSongDetail('missing'), null);
   assert.equal(calls, 1);
 });
+
+test('Mix keeps chart leaders first, rotates languages, and removes duplicate recordings', () => {
+  const { interleaveCharts } = loader()('lib/trending-mix.ts');
+  const english = [song('en1', 'English one', 'A'), song('en2', 'English two', 'B')];
+  const hindi = [song('hi1', 'Hindi one', 'C'), song('hi2', 'Hindi two', 'D')];
+  const pools = [english, hindi, [english[0]]];
+  assert.deepEqual(interleaveCharts(pools).map(s => s.id), ['en1', 'hi1', 'en2', 'hi2']);
+  assert.deepEqual(english.map(s => s.id), ['en1', 'en2']);
+  assert.deepEqual(interleaveCharts([]), []);
+});
+
+test('Mix chart requests are shared, cached, and tolerate a missing language chart', async () => {
+  let calls = 0;
+  const { dedupeSongs } = loader()('lib/saavn.ts');
+  const { getTrendingMix } = loader({ mocks: { '@/lib/saavn': {
+    dedupeSongs,
+    getPlaylistDetail: async id => {
+      calls++;
+      if (id === '1134651042') throw new Error('Temporarily down');
+      return { songs: [song(id, `Chart ${id}`, `Artist ${id}`)] };
+    },
+  } } })('lib/trending-mix.ts');
+  const [first, second] = await Promise.all([getTrendingMix(), getTrendingMix()]);
+  assert.equal(calls, 4);
+  assert.equal(first.length, 3);
+  assert.deepEqual(first, second);
+  assert.deepEqual(await getTrendingMix(), first);
+  assert.equal(calls, 4);
+});
+
+test('refreshing Trending Mix changes the selection without losing language variety', () => {
+  const { pickFreshTrending, readMixHistory } = loader()('lib/feed-mix.ts');
+  const pool = ['english', 'hindi', 'tamil', 'malayalam'].flatMap(language =>
+    Array.from({ length: 8 }, (_, index) => ({ ...song(`${language}${index}`, `${language} ${index}`, `Artist ${index}`), language }))
+  );
+  const first = pickFreshTrending(pool, [], 10, () => 0.4);
+  const history = JSON.stringify(first.map(song => song.id));
+  const next = pickFreshTrending(pool, readMixHistory(history), 10, () => 0.4);
+  assert.equal(first.length, 10);
+  assert.equal(next.length, 10);
+  assert.ok(next.every(song => !first.some(previous => previous.id === song.id)));
+  assert.equal(new Set(next.map(song => song.language)).size, 4);
+  assert.deepEqual(readMixHistory('invalid'), []);
+  assert.deepEqual(readMixHistory('{}'), []);
+  assert.equal(pickFreshTrending(pool.slice(0, 2), pool.map(song => song.id), 10).length, 2);
+});

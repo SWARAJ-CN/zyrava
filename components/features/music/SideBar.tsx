@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
 import { AnimatePresence, motion } from "framer-motion";
@@ -45,31 +45,32 @@ const TABS: Array<{
   value: DockEntry;
   label: string;
   icon: "music" | "heart" | "gauge" | "sliders" | "message" | "sparkles" | "list";
+  group: "Music" | "Studio" | "For you";
 }> = [
-  { value: "browse", label: "Browse", icon: "music" },
-  { value: "library", label: "Library", icon: "heart" },
-  { value: "dashboard", label: "Audio desk", icon: "gauge" },
-  { value: "mixer", label: "Mixer", icon: "sliders" },
-  { value: "chat", label: "Community", icon: "message" },
-  { value: "customize", label: "Customize", icon: "sparkles" },
-  { value: "support", label: "Buy A Mug", icon: "heart" },
-  { value: "payments", label: "Payments", icon: "list" },
+  { value: "browse", label: "Discover", icon: "music", group: "Music" },
+  { value: "library", label: "Your library", icon: "heart", group: "Music" },
+  { value: "chat", label: "Community", icon: "message", group: "Music" },
+  { value: "dashboard", label: "Audio desk", icon: "gauge", group: "Studio" },
+  { value: "mixer", label: "Mixer", icon: "sliders", group: "Studio" },
+  { value: "customize", label: "Customize", icon: "sparkles", group: "For you" },
+  { value: "support", label: "Buy A Mug", icon: "heart", group: "For you" },
+  { value: "payments", label: "Payments", icon: "list", group: "For you" },
 ];
 
 const BROWSE_LINKS: Array<{ label: string; id: string; icon: "search" | "globe" | "list" }> = [
-  { label: "Top of the page", id: "top", icon: "search" },
-  { label: "Region library", id: "region-library", icon: "globe" },
-  { label: "Song list", id: "library-list", icon: "list" },
+  { label: "Search & discover", id: "top", icon: "search" },
+  { label: "Explore languages", id: "region-library", icon: "globe" },
+  { label: "All songs", id: "library-list", icon: "list" },
 ];
 
 /** Rows share one rhythm so every list in the dock reads as a single column. */
 const ROW =
-  "flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-[13px] font-medium transition-colors";
+  "flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
 /** Quiet uppercase heading above a group of controls. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <h2 className="px-2.5 pb-2 text-[10px] font-semibold uppercase leading-none tracking-[0.14em] text-muted">
+    <h2 className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase leading-none tracking-[0.12em] text-muted">
       {children}
     </h2>
   );
@@ -91,7 +92,7 @@ function DockIcon({
       title={label}
       aria-label={label}
       onClick={onClick}
-      className="relative grid size-9 place-items-center rounded-lg text-muted transition-colors after:absolute after:-inset-1 after:content-[''] hover:bg-dock-hover hover:text-foreground active:scale-95"
+      className="relative grid size-10 shrink-0 place-items-center rounded-xl text-muted transition-colors hover:bg-dock-hover hover:text-foreground active:scale-95 focus-visible:outline-2 focus-visible:outline-accent"
     >
       {children}
     </button>
@@ -174,6 +175,11 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
 
   /** Jump to a section; a phone drawer steps aside before the page scrolls. */
   const go = (id: string) => {
+    if (pathname !== "/") {
+      router.push(id === "top" ? "/" : `/#${id}`);
+      if (mobile) setMobileNavOpen(false);
+      return;
+    }
     const scroll = () =>
       id === "top"
         ? window.scrollTo({ top: 0, behavior: "smooth" })
@@ -216,21 +222,21 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
       {/* Brand head — the dock's own switch lives up here. */}
       <div
         className={cn(
-          "flex h-16 flex-none items-center border-b border-dock-line",
-          wide ? "gap-3 px-3.5" : "justify-center px-0"
+          "sidebar-brand flex min-h-20 flex-none items-center",
+          wide ? "gap-3 px-5" : "justify-center px-0"
         )}
       >
         {wide ? (
           <>
-            <span className="grid size-8 flex-none place-items-center rounded-[0.6rem] bg-accent text-accent-foreground">
+            <span className="grid size-10 flex-none place-items-center rounded-2xl bg-accent text-accent-foreground shadow-sm">
               <Icon name="music" className="size-4" strokeWidth={2.2} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[12.5px] font-bold leading-none tracking-[0.22em] text-foreground">
+              <p className="truncate text-base font-extrabold leading-none tracking-[0.14em] text-foreground">
                 ZYRAVA
               </p>
-              <p className="mt-1.5 truncate text-[9px] font-medium uppercase leading-none tracking-[0.2em] text-muted">
-                {personalThemeEnabled ? "Your listening room" : "Audio studio"}
+              <p className="mt-1.5 truncate text-[11px] font-medium leading-none text-muted">
+                {personalThemeEnabled ? "Your listening room" : "Find your next favourite"}
               </p>
             </div>
             <DockIcon label={mobile ? "Close the dock" : "Collapse dock (M)"} onClick={closeDock}>
@@ -250,24 +256,29 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
         )}
       </div>
 
+      <div className="dock-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
       {/* Sections */}
       <nav
         aria-label="Dock sections"
         className={cn(
           "flex flex-none flex-col",
-          wide ? "gap-0.5 px-2.5 py-2.5" : "items-center gap-1 px-2 py-3"
+          wide ? "gap-1 px-3 pb-4 pt-1" : "items-center gap-1 px-2 py-3"
         )}
       >
-        {TABS.filter((entry) => !personalExperience || entry.value === "browse" || entry.value === "library").map((entry) => {
-          const active = entry.value === "support" ? supportOpen : entry.value === "payments" ? paymentsOpen : entry.value === "customize" ? customizeOpen : entry.value === "chat" ? chatOpen : !accountPageOpen && tab === entry.value;
+        {TABS.filter((entry) => !personalExperience || entry.value === "browse" || entry.value === "library").map((entry, entryIndex, entries) => {
+          const active = entry.value === "support" ? supportOpen : entry.value === "payments" ? paymentsOpen : entry.value === "customize" ? customizeOpen : entry.value === "chat" ? chatOpen : !chatOpen && !accountPageOpen && tab === entry.value;
           const badge=entry.value==="customize"?customizations.incoming.length:entry.value==="chat"?chatBadge:0;
           return (
+            <Fragment key={entry.value}>
+            {entryIndex === 0 || entries[entryIndex - 1].group !== entry.group ? (
+              wide ? <p className={cn("px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.13em] text-muted", entryIndex ? "pt-5" : "pt-2")}>{entry.group}</p>
+                : entryIndex ? <span aria-hidden className="my-2 h-px w-6 bg-dock-line" /> : null
+            ) : null}
             <button
-              key={entry.value}
               type="button"
               title={wide ? undefined : entry.label}
               aria-label={wide ? undefined : entry.label}
-              aria-current={active || undefined}
+              aria-current={active ? "page" : undefined}
               onClick={() => {
                 /* The community room is an overlay, not another shelf — it never
                    takes the dock's own tab state with it. */
@@ -288,22 +299,22 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
                 const reason = entry.value === "mixer" ? "mixer" : "tab";
                 if (entry.value !== "browse" && !requireAuth(reason)) return;
                 setTab(entry.value);
-                if (entry.value === "browse" && accountPageOpen) router.push("/");
+                if (entry.value === "browse" && pathname !== "/") router.push("/");
                 if (!wide) setSidebarWide(true);
               }}
               className={cn(
-                "relative flex items-center text-[13px] transition-colors duration-150",
+                "sidebar-nav-item relative flex items-center text-[13px] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                 wide
                   ? cn(
-                      "h-10 w-full gap-3 rounded-lg px-2.5",
+                      "min-h-11 w-full gap-3 rounded-xl px-3",
                       active
-                        ? "bg-dock-active font-semibold text-foreground"
+                        ? "sidebar-nav-active bg-accent-soft font-semibold text-brand"
                         : "font-medium text-muted hover:bg-dock-hover hover:text-foreground"
                     )
                   : cn(
                       "size-11 justify-center rounded-xl",
                       active
-                        ? "bg-dock-active text-brand"
+                        ? "sidebar-nav-active bg-accent-soft text-brand"
                         : "text-muted hover:bg-dock-hover hover:text-foreground"
                     )
               )}
@@ -331,13 +342,14 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
                 />
               ) : null}
             </button>
+            </Fragment>
           );
         })}
       </nav>
 
       {/* Panel body — the rail shows navigation only. */}
       {wide ? (
-        <div className="dock-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-4">
+        <div className="mx-3 border-t border-dock-line pt-4">
           {accountPageOpen && tab === "browse" ? (
             <div className="px-2.5 py-2">
               <SectionLabel>Your listening room</SectionLabel>
@@ -704,8 +716,9 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
           ) : null}
         </div>
       ) : (
-        <div className="flex-1" />
+        <div />
       )}
+      </div>
 
       {/* Heavy preset hearing-safety dialog */}
       {heavyPending ? (
@@ -750,16 +763,16 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
       <div
         className={cn(
           "flex-none border-t border-dock-line",
-          wide ? "px-2.5 py-2.5" : "flex flex-col items-center gap-1 px-2 py-2"
+          wide ? "px-3 py-3" : "flex flex-col items-center gap-1 px-2 py-2"
         )}
       >
         {wide ? (
           <>
-            <button
+            {mobile && current ? <button
               type="button"
-              onClick={() => setNowPlayingOpen(!nowPlayingOpen)}
+              onClick={() => { setNowPlayingOpen(!nowPlayingOpen); setMobileNavOpen(false); }}
               aria-pressed={nowPlayingOpen}
-              title={current ? `Now playing: ${current.title}` : "Now playing panel"}
+              title={`Now playing: ${current.title}`}
               className="group flex w-full items-center gap-2.5 rounded-lg p-1.5 text-start transition-colors hover:bg-dock-hover"
             >
               <span className="relative grid size-8 flex-none place-items-center overflow-clip rounded-md bg-surface">
@@ -795,9 +808,9 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
                   <span />
                 </span>
               ) : null}
-            </button>
+            </button> : null}
 
-            <div className="mt-1 flex items-center justify-between gap-1 px-0.5">
+            <div className="flex items-center justify-between gap-1">
               {authStatus === "loading" ? (
                 <span aria-hidden className="h-9" />
               ) : authStatus === "authenticated" && user ? (
@@ -809,7 +822,7 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
                     {accountInitial}
                   </span>
                   <span
-                    className="min-w-0 max-w-[7.5rem] truncate text-[11px] font-medium text-muted"
+                    className="min-w-0 max-w-[8rem] truncate text-xs font-semibold text-foreground"
                     title={accountName}
                   >
                     {accountName}
@@ -955,7 +968,7 @@ export function SideBar() {
   // Keyboard: M toggles the dock like a pro DAW.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      if (event.repeat || event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) {
         return;
       }
       if (event.key.toLowerCase() === "m" && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -984,8 +997,9 @@ export function SideBar() {
       <aside
         aria-label="ZYRAVA dock"
         data-wide={sidebarWide || undefined}
+        style={{ bottom: "var(--player-bar-height, 0px)" }}
         className={cn(
-          "fixed inset-y-0 start-0 z-30 hidden flex-col overflow-clip border-e border-dock-line bg-dock md:flex",
+          "sidebar-shell fixed top-0 start-0 z-30 hidden flex-col overflow-clip border-e border-dock-line bg-dock md:flex",
           "dock-width",
           sidebarWide ? "w-[var(--dock-wide)]" : "w-[var(--dock-rail)]"
         )}
@@ -1013,7 +1027,8 @@ export function SideBar() {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", stiffness: 420, damping: 40 }}
-              className="flex h-full w-[min(19.5rem,86vw)] flex-col border-e border-dock-line bg-dock shadow-pop"
+              className="sidebar-shell flex h-full w-[min(21rem,88vw)] flex-col rounded-e-3xl border-e border-dock-line bg-dock shadow-pop"
+              style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
             >
               <DockBody wide mobile onSignOut={requestLogout} />
             </motion.div>

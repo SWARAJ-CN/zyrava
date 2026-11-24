@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Song } from "@/lib/saavn";
+import { LAST_PLAYED_KEY, readLastPlayed, serializeLastPlayed } from "@/lib/player-memory";
 import { searchSongs } from "@/lib/saavn";
 import { playbackKind, buildRadioFor, type FetchPool } from "@/lib/taste";
 import { useTaste } from "@/components/providers/TasteProvider";
@@ -447,6 +448,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [listenedSeconds, setListenedSeconds] = useState(0);
   const [sessionPlays, setSessionPlays] = useState(0);
   const lastTickRef = useRef(0);
+  const pendingListenedRef = useRef(0);
 
   /* DJ transport — repeat / shuffle / transition hand-off. */
   const [repeat, setRepeatState] = useState<RepeatMode>("off");
@@ -531,10 +533,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const audioContextRef = useRef<AudioContext | null>(null);
   // Unlock during a gesture without diverting the media element into Web Audio.
   const preparedContextRef = useRef<AudioContext | null>(null);
+  const graphWantedRef = useRef(false);
+  const activateGraphRef = useRef<(() => void) | null>(null);
   const prepareAudioContext = useCallback(() => {
     const existing = audioContextRef.current ?? preparedContextRef.current;
     if (existing && existing.state !== "closed") {
-      void existing.resume().catch(() => {});
+      void existing.resume().then(() => activateGraphRef.current?.()).catch(() => {});
       return existing;
     }
     const Context = window.AudioContext ?? (
@@ -544,7 +548,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     try {
       const context = new Context();
       preparedContextRef.current = context;
-      void context.resume().catch(() => {});
+      void context.resume().then(() => activateGraphRef.current?.()).catch(() => {});
       return context;
     } catch {
       return null;
@@ -634,11 +638,57 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [fx, sweep, subDb, compAmt, limiterOn, loudnessOn, eqGains, spatialMode]);
 
+  const userPausedRef = useRef(false);
+  const memoryRestoredRef = useRef(false);
+  const restoredPositionRef = useRef<{ id: string; position: number } | null>(null);
+  const rememberCurrent = useCallback(() => {
+    const song = currentRef.current;
+    if (!song) return;
+    const position = restoredPositionRef.current?.id === song.id
+      ? restoredPositionRef.current.position : audioRef.current?.currentTime ?? 0;
+    try { window.localStorage.setItem(LAST_PLAYED_KEY, serializeLastPlayed(song, position)); } catch { /* storage unavailable */ }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (memoryRestoredRef.current || currentRef.current || shouldPlayRef.current) return;
+      memoryRestoredRef.current = true;
+      try {
+        const saved = readLastPlayed(window.localStorage.getItem(LAST_PLAYED_KEY));
+        if (!saved) return;
+        shouldPlayRef.current = false;
+        userPausedRef.current = true;
+        restoredPositionRef.current = { id: saved.song.id, position: saved.position };
+        setQueue([saved.song]);
+        setQueueLabel("Recently played");
+        setIndex(0);
+        setDuration(saved.song.duration);
+        setProgress(saved.position);
+      } catch { /* storage unavailable */ }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(rememberCurrent, 5000);
+    window.addEventListener("pagehide", rememberCurrent);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("pagehide", rememberCurrent);
+      rememberCurrent();
+    };
+  }, [rememberCurrent]);
+
   const current = queue[index] ?? null;
 
   useEffect(() => {
     currentRef.current = current;
   }, [current]);
+
+  useEffect(() => {
+    const timer = setTimeout(rememberCurrent, 0);
+    return () => clearTimeout(timer);
+  }, [current, playing, rememberCurrent]);
 
   const getAnalyser = useCallback(() => analyserRef.current, []);
 
@@ -1153,7 +1203,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const context = preparedContextRef.current;
     // A suspended context accepts play() but emits silence. Keep native audio
     // until the gesture-unlocked context is actually running.
-    if (!context || context.state !== "running") return null;
+    if (!context || context.state !== "running" || !graphWantedRef.current) return null;
     try {
       /* Mixer head — gain pre-amp → balance → low-cut → routed output. */
       const preamp = context.createGain();
@@ -1268,6 +1318,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return null;
     }
   }, [applyRouting, applyFX]);
+
+  const latestEnsureGraphRef = useRef(ensureGraph);
+  useEffect(() => { latestEnsureGraphRef.current = ensureGraph; }, [ensureGraph]);
+
+  // Keep ordinary phone playback outside Web Audio until
+  // the listener actually requests audio processing. Do not reload on app hide.
+  useEffect(() => {
+    const mobile = window.matchMedia("(pointer: coarse)").matches;
+    graphWantedRef.current = !mobile || eqGains.some((gain) => gain !== 0) ||
+      (spatialMode !== "off" && spatialMode !== "stereo") || preampDb !== 0 ||
+      balance !== 0 || loCut || crossfade > 0 || djEngagedRef.current || mixerOpen;
+    if (graphWantedRef.current) activateGraphRef.current?.();
+  }, [eqGains, spatialMode, preampDb, balance, loCut, crossfade, fx, sweep, subDb, compAmt, limiterOn, loudnessOn, mixerOpen]);
 
   /**
    * Builds the heavy section in place: the EQ ladder → spatial section, plus
@@ -1556,7 +1619,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   /** How many times the current interruption has been retried. */
   const attemptsRef = useRef(0);
   /** Set only when the user's own controls stopped the music. */
-  const userPausedRef = useRef(false);
   /** A source swap pauses the element on its way through — not an interruption. */
   const swapUntilRef = useRef(0);
   /** The retry chain lives here so it can call itself. */
@@ -1741,7 +1803,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     tasteEndedRef.current = false;
     tasteDoneRef.current = false;
     tasteSongRef.current = current ?? null;
-    if (current) recordTaste("play", current, { pct: 0 });
+    if (current && shouldPlayRef.current) recordTaste("play", current, { pct: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id]);
 
@@ -1755,7 +1817,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let pendingUpgrade: (() => void) | null = null;
 
-    setProgress(0);
+    const restored = restoredPositionRef.current;
+    setProgress(restored?.id === current.id ? restored.position : 0);
     setDuration(current.duration || 0);
     setPlayerError(null);
     streamFailuresRef.current = 0;
@@ -1765,7 +1828,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // A source swap pauses the element on its way through — that pair of
       // events is not the interruption the recovery watches for.
       swapUntilRef.current = Date.now() + 1500;
-      userPausedRef.current = false;
+      if (shouldPlayRef.current) userPausedRef.current = false;
       clearRecovery();
       audio.src = source;
       audio.playbackRate = rateRef.current;
@@ -1785,6 +1848,44 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       });
     };
 
+    let activationPending = false;
+    const activateGraph = () => {
+      if (!graphWantedRef.current || cancelled || document.hidden || pendingUpgrade || activationPending || audioContextRef.current) return;
+      const context = preparedContextRef.current;
+      if (!context || context.state !== "running") return;
+      if (current.offline || audio.crossOrigin === "anonymous") {
+        setVisualizerReady(Boolean(latestEnsureGraphRef.current()));
+        return;
+      }
+      let hostname = "";
+      try { hostname = new URL(audio.src).hostname; } catch { return; }
+      if (!hostname) return;
+      const source = audio.src;
+      activationPending = true;
+      void probeCors(source, hostname).then((allowed) => {
+        activationPending = false;
+        if (!allowed || !graphWantedRef.current || cancelled || document.hidden ||
+          currentRef.current?.id !== current.id || audio.src !== source || audioContextRef.current ||
+          preparedContextRef.current?.state !== "running") return;
+        const resumeAt = audio.currentTime;
+        swapUntilRef.current = Date.now() + 2500;
+        const upgrade = () => {
+          audio.removeEventListener("canplay", upgrade);
+          pendingUpgrade = null;
+          if (cancelled || currentRef.current?.id !== current.id) return;
+          setVisualizerReady(Boolean(latestEnsureGraphRef.current()));
+          if (resumeAt > 0 && Math.abs(audio.currentTime - resumeAt) > 0.4) audio.currentTime = resumeAt;
+          if (shouldPlayRef.current && !userPausedRef.current) audio.play().catch(() => recoverPlayback());
+        };
+        pendingUpgrade = upgrade;
+        audio.addEventListener("canplay", upgrade, { once: true });
+        audio.crossOrigin = "anonymous";
+        audio.src = source;
+        audio.load();
+      });
+    };
+    activateGraphRef.current = activateGraph;
+
     const startStream = async () => {
       // A stream re-resolved during this track's session wins — CDN links
       // expire, and "plays a while then dies" is usually the link, not the
@@ -1803,7 +1904,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
         audio.crossOrigin = "anonymous";
-        setVisualizerReady(Boolean(ensureGraph()));
+        setVisualizerReady(Boolean(latestEnsureGraphRef.current()));
         arm(local);
         return;
       }
@@ -1819,7 +1920,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // The analyser — and, in Chromium, audibility through Web Audio —
         // only works with crossorigin="anonymous" on the element.
         audio.crossOrigin = "anonymous";
-        setVisualizerReady(Boolean(ensureGraph()));
+        setVisualizerReady(Boolean(latestEnsureGraphRef.current()));
         arm(refreshed ?? current.streamUrl);
         return;
       }
@@ -1833,43 +1934,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // below warms the cache so the following tracks take the full graph.
       setVisualizerReady(false);
       arm(refreshed ?? current.streamUrl);
-      if (hostname && refreshed === null) {
-        void probeCors(current.streamUrl, hostname).then((allowed) => {
-          // The probe passed while this track was still playing natively —
-          // wire the graph in now so EQ and space bite this song too, not
-          // just the next one. The element reloads with the CORS mode, so
-          // the play position is captured and restored across the swap.
-          if (
-            !allowed ||
-            document.hidden ||
-            cancelled ||
-            currentRef.current?.id !== current.id ||
-            audioContextRef.current ||
-            preparedContextRef.current?.state !== "running"
-          )
-            return;
-          const resumeAt = audio.currentTime;
-          swapUntilRef.current = Date.now() + 2500; // the reload's pause is ours
-          audio.crossOrigin = "anonymous";
-          audio.src = current.streamUrl;
-          audio.load();
-          const upgrade = () => {
-            audio.removeEventListener("canplay", upgrade);
-            pendingUpgrade = null;
-            if (cancelled || currentRef.current?.id !== current.id) return;
-            setVisualizerReady(Boolean(ensureGraph()));
-            if (resumeAt > 1 && Math.abs(audio.currentTime - resumeAt) > 0.4) {
-              audio.currentTime = resumeAt;
-            }
-            if (shouldPlayRef.current) {
-              audioContextRef.current?.resume().catch(() => {});
-              audio.play().catch(() => undefined);
-            }
-          };
-          pendingUpgrade = upgrade;
-          audio.addEventListener("canplay", upgrade, { once: true });
-        });
-      }
+      if (hostname && refreshed === null) activateGraph();
     };
     startStreamRef.current = startStream;
 
@@ -1877,6 +1942,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       if (pendingUpgrade) audio.removeEventListener("canplay", pendingUpgrade);
+      if (activateGraphRef.current === activateGraph) activateGraphRef.current = null;
       if (startStreamRef.current === startStream) startStreamRef.current = null;
     };
     // The track id is the real trigger; `shouldPlayRef` is consumed above at
@@ -2059,7 +2125,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
    */
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLAudioElement>) => {
     const time = event.currentTarget.currentTime;
-    setProgress(time);
+    // OS transport and accounting keep running while hidden; React's entire
+    // player UI does not need to render every decoder tick in the background.
+    if (!document.hidden) setProgress(time);
     // Lock-screen and notification controls need a position to render, and an
     // OS that sees a stalled one is quicker to reclaim the playback session.
     if ("mediaSession" in navigator) {
@@ -2087,7 +2155,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     // Only count genuine forward plays; big jumps (seeks) don't count.
     if (time > last && time - last < 5) {
-      setListenedSeconds((seconds) => seconds + (time - last));
+      pendingListenedRef.current += time - last;
+    }
+    if (!document.hidden && pendingListenedRef.current > 0) {
+      const elapsed = pendingListenedRef.current;
+      pendingListenedRef.current = 0;
+      setListenedSeconds((seconds) => seconds + elapsed);
     }
     lastTickRef.current = time;
     // Auto DJ hand-off: the master envelope glides down over the final
@@ -2120,26 +2193,35 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     [releaseGraph]
   );
 
-  const togglePlay = useCallback(() => {
+  const pausePlayback = useCallback(() => {
+    // The OS may pause the element before dispatching its Pause action.
+    // Always record intent and cancel recovery, even when already paused.
+    userPausedRef.current = true;
+    shouldPlayRef.current = false;
+    pendingEndRef.current = false;
+    clearRecovery();
+    audioRef.current?.pause();
+    setPlaying(false);
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+  }, [clearRecovery]);
+
+  const playPlayback = useCallback(() => {
     const audio = audioRef.current;
-    if (!audio || !current) return;
-    if (audio.paused) {
-      shouldPlayRef.current = true;
-      userPausedRef.current = false;
-      clearRecovery();
-      audioContextRef.current?.resume().catch(() => {});
-      audio.play().catch(() => {
-        swapUntilRef.current = 0;
-        recoverPlayback();
-      });
-    } else {
-      userPausedRef.current = true;
-      shouldPlayRef.current = false;
-      pendingEndRef.current = false;
-      clearRecovery();
-      audio.pause();
-    }
-  }, [clearRecovery, current, recoverPlayback]);
+    if (!audio || !currentRef.current) return;
+    shouldPlayRef.current = true;
+    userPausedRef.current = false;
+    clearRecovery();
+    audioContextRef.current?.resume().catch(() => {});
+    audio.play().catch(() => {
+      swapUntilRef.current = 0;
+      recoverPlayback();
+    });
+  }, [clearRecovery, recoverPlayback]);
+
+  const togglePlay = useCallback(() => {
+    if (audioRef.current?.paused) playPlayback();
+    else pausePlayback();
+  }, [playPlayback, pausePlayback]);
 
   const startQueue = useCallback(
     (list: Song[], label: string, position: number) => {
@@ -2199,6 +2281,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
    * auto-next behaviour is left untouched, this only widens the queue. */
   useEffect(() => {
     if (!autoFeed || !playing || !current) return;
+    if (queueLabel === "Recently played" && queue.length === 1) return;
     // Stop padding early: the last three tracks are already on deck.
     if (queue.length - (index + 1) > 2) return;
     if (autoFeedBusyRef.current) return;
@@ -2222,7 +2305,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [autoFeed, playing, current, queue, index, tasteVector?.artistWords, appendQueue]);
+  }, [autoFeed, playing, current, queue, queueLabel, index, tasteVector?.artistWords, appendQueue]);
 
   const setPreampDb = useCallback((value: number) => {
     setPreampDbState(value);
@@ -2304,6 +2387,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, [clearRecovery]);
 
   const endSession = useCallback(() => {
+    memoryRestoredRef.current = true;
+    restoredPositionRef.current = null;
+    currentRef.current = null;
+    pendingListenedRef.current = 0;
+    try { window.localStorage.removeItem(LAST_PLAYED_KEY); } catch { /* storage unavailable */ }
     stop();
     shouldPlayRef.current = false;
     setQueue([]);
@@ -2418,6 +2506,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }
         pendingEndRef.current = false;
         if (queue.length === 1 && audio) {
+          if (queueLabel === "Recently played") {
+            setPlayerError("The feed isn't ready yet. Open Songs and try Next again.");
+            return;
+          }
           audio.currentTime = 0;
           void audio.play().catch(recoverPlayback);
           return;
@@ -2425,7 +2517,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       setIndex(next >= queue.length ? 0 : next);
     },
-    [index, queue, shuffle, isGuest, requestLogin, stop, recoverPlayback]
+    [index, queue, queueLabel, shuffle, isGuest, requestLogin, stop, recoverPlayback]
   );
 
   /** Track end: repeat-one restarts in place; otherwise the queue advances
@@ -2466,6 +2558,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (queue.length === 1) {
+        if (queueLabel === "Recently played") {
+          shouldPlayRef.current = false;
+          setPlaying(false);
+          setPlayerError("The feed isn't ready yet. Open Songs to continue listening.");
+          return;
+        }
         // One track in the queue: jumping to "the next" is jumping to itself,
         // which would not reload anything. Restart it where it stands.
         audio.currentTime = 0;
@@ -2475,7 +2573,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     shouldPlayRef.current = true;
     setIndex(atEnd ? 0 : index + 1);
-  }, [current, repeat, shuffle, queue, index, isGuest, requestLogin, stop]);
+  }, [current, repeat, shuffle, queue, queueLabel, index, isGuest, requestLogin, stop]);
 
   const seek = useCallback((seconds: number) => {
     const audio = audioRef.current;
@@ -2538,12 +2636,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           ? [{ src: current.imageLarge, sizes: "500x500", type: "image/jpeg" }]
           : [],
       });
-      register("play", () => {
-        if (audioRef.current?.paused) togglePlay();
-      });
-      register("pause", () => {
-        if (audioRef.current && !audioRef.current.paused) togglePlay();
-      });
+    } catch { /* Bad artwork metadata must not disable transport controls. */ }
+    {
+      register("play", playPlayback);
+      register("pause", pausePlayback);
       register("nexttrack", () => stepTrack(1));
       register("previoustrack", () => stepTrack(-1));
       // Kill/scrub from the OS mini-player: a lock-screen stop without a
@@ -2560,8 +2656,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       register("seekto", (details) => {
         if (details.seekTime !== undefined && details.fastSeek !== true) seek(details.seekTime);
       });
-    } catch {
-      // MediaSession is progressive enhancement only.
     }
     return () => {
       try {
@@ -2577,7 +2671,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // ignore
       }
     };
-  }, [current, togglePlay, stepTrack, stop, seek]);
+  }, [current, playPlayback, pausePlayback, stepTrack, stop, seek]);
 
   useEffect(() => {
     if ("mediaSession" in navigator) {
@@ -2628,6 +2722,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onWakeup = () => {
       if (document.hidden) return;
+      const audio = audioRef.current;
+      if (audio) setProgress(audio.currentTime);
+      if (pendingListenedRef.current > 0) {
+        const elapsed = pendingListenedRef.current;
+        pendingListenedRef.current = 0;
+        setListenedSeconds((seconds) => seconds + elapsed);
+      }
       void audioContextRef.current?.resume().catch(() => {});
       void padContextRef.current?.resume().catch(() => {});
       recoverPlayback();
@@ -2853,7 +2954,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         ref={audioRef}
         preload="auto"
         onPlay={() => {
-          userPausedRef.current = false;
+          // Ignore a late play event after an explicit notification Pause.
+          if (userPausedRef.current) {
+            audioRef.current?.pause();
+            return;
+          }
           clearRecovery();
           setPlaying(true);
         }}
@@ -2861,9 +2966,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         onStalled={recoverPlayback}
         onWaiting={recoverPlayback}
         onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={(event) =>
-          setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)
-        }
+        onLoadedMetadata={(event) => {
+          const audio = event.currentTarget;
+          const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+          setDuration(duration);
+          const restored = restoredPositionRef.current;
+          if (restored && restored.id === currentRef.current?.id) {
+            const position = duration ? Math.min(restored.position, duration) : restored.position;
+            audio.currentTime = position;
+            setProgress(position);
+            restoredPositionRef.current = null;
+          }
+        }}
         onEnded={handleEnded}
         onError={() => {
           if (!current) return;

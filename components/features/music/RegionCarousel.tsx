@@ -86,7 +86,7 @@ export function RegionCarousel({ covers, active, nowPlaying, onPlay, onSelect }:
             key={region.label}
             role="group"
             aria-roledescription="slide"
-            aria-label={`${region.label} — ${region.hint}`}
+            aria-label={`${region.label}${region.hint ? ` — ${region.hint}` : ""}`}
             aria-hidden={regionIndex !== index}
             className={cn(
               "relative h-[180px] w-full flex-none sm:h-[230px] lg:h-[270px]",
@@ -104,7 +104,7 @@ export function RegionCarousel({ covers, active, nowPlaying, onPlay, onSelect }:
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-white/70 sm:text-[11px]">
                   <Icon name="music" className="size-3.5" />
-                  Now in rotation · {region.hint}
+                  Now in rotation{region.hint ? ` · ${region.hint}` : ""}
                 </p>
                 <h2 className="mt-2 truncate text-4xl font-black tracking-tight text-white drop-shadow sm:text-5xl lg:text-6xl">
                   {region.label}

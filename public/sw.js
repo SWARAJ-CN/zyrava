@@ -83,3 +83,22 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+
+
+// Online alerts carry only a generic Community action, never a person's data.
+self.addEventListener("notificationclick", (event) => {
+  if (event.notification.data?.action !== "zyrava:open-community") return;
+  event.notification.close();
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const client = windows.find((window) => window.focused) ?? windows[0];
+    if (client) {
+      try {
+        await client.focus();
+        client.postMessage({ type: "zyrava:open-community" });
+        return;
+      } catch { /* If the old window is gone, open the app below. */ }
+    }
+    await self.clients.openWindow("/?community=1");
+  })());
+});
