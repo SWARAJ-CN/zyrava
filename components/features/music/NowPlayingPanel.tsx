@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { ShareSongButton } from "@/components/features/music/ShareSongButton";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
@@ -140,6 +141,7 @@ export function NowPlayingPanel() {
           >
             <Icon name={playing ? "pause" : "play"} size={18} className="fill-current" />
           </button>
+          <ShareSongButton song={current} />
           <span className="ms-auto truncate text-[11px] font-medium text-faint-foreground">
             ZYRAVA
           </span>

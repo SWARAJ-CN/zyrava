@@ -529,6 +529,27 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  // Unlock during a gesture without diverting the media element into Web Audio.
+  const preparedContextRef = useRef<AudioContext | null>(null);
+  const prepareAudioContext = useCallback(() => {
+    const existing = audioContextRef.current ?? preparedContextRef.current;
+    if (existing && existing.state !== "closed") {
+      void existing.resume().catch(() => {});
+      return existing;
+    }
+    const Context = window.AudioContext ?? (
+      window as unknown as { webkitAudioContext?: typeof AudioContext }
+    ).webkitAudioContext;
+    if (!Context) return null;
+    try {
+      const context = new Context();
+      preparedContextRef.current = context;
+      void context.resume().catch(() => {});
+      return context;
+    } catch {
+      return null;
+    }
+  }, []);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const filtersRef = useRef<BiquadFilterNode[]>([]);
   /** Post-EQ trim that cancels the curve's biggest boost (makeup gain). */
@@ -1129,13 +1150,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const ensureGraph = useCallback((): AnalyserNode | null => {
     const audio = audioRef.current;
     if (!audio || audioContextRef.current) return analyserRef.current;
-    const Context = window.AudioContext ?? (
-      window as unknown as { webkitAudioContext?: typeof AudioContext }
-    ).webkitAudioContext;
-    if (!Context) return null;
+    const context = preparedContextRef.current;
+    // A suspended context accepts play() but emits silence. Keep native audio
+    // until the gesture-unlocked context is actually running.
+    if (!context || context.state !== "running") return null;
     try {
-      const context = new Context();
-      const source = context.createMediaElementSource(audio);
       /* Mixer head — gain pre-amp → balance → low-cut → routed output. */
       const preamp = context.createGain();
       preamp.gain.value = Math.pow(10, preampDbRef.current / 20);
@@ -1144,7 +1163,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const loCutNode = context.createBiquadFilter();
       loCutNode.type = "highpass";
       loCutNode.frequency.value = loCutRef.current ? 40 : 4; // 4 Hz ≡ transparent
-      source.connect(preamp);
       preamp.connect(panNode);
       panNode.connect(loCutNode);
 
@@ -1175,7 +1193,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       /* The analyser is a parallel tap straight off the source: it reads the
          untouched stream, so the wave and the beat keep their shape however
          the EQ, space mode or volume are set. */
-      source.connect(analyser);
 
       // Stereo meter bridge: post-balance left / right RMS pair for the
       // console's VU meters — fan-out off the balance stage.
@@ -1199,8 +1216,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       padBus.connect(masterGain);
       padBusRef.current = padBus;
 
+      // Build all output nodes before binding: createMediaElementSource is
+      // irreversible for this element and must never strand it on failure.
+      const source = context.createMediaElementSource(audio);
       audioContextRef.current = context;
+      preparedContextRef.current = null;
       sourceRef.current = source;
+      source.connect(preamp);
+      source.connect(analyser);
       analyserRef.current = analyser;
       preampNodeRef.current = preamp;
       panNodeRef.current = panNode;
@@ -1232,6 +1255,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       applyRouting();
       return analyser;
     } catch {
+      const source = sourceRef.current;
+      if (source && masterGainRef.current) {
+        source.disconnect();
+        source.connect(masterGainRef.current);
+      } else {
+        masterGainRef.current = null;
+        audio.volume = appliedVolume(volumeRef.current);
+        audio.muted = mutedRef.current;
+      }
       analyserRef.current = null;
       return null;
     }
@@ -1631,6 +1663,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     rackReadyRef.current = false;
     rackBuildingRef.current = false;
     void context?.close().catch(() => undefined);
+    void preparedContextRef.current?.close().catch(() => undefined);
+    preparedContextRef.current = null;
   }, []);
 
   // Keep the graph attached for its lifetime. Closing a MediaElementSource's
@@ -1719,6 +1753,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const audio = audioRef.current;
     if (!audio || !current) return;
     let cancelled = false;
+    let pendingUpgrade: (() => void) | null = null;
 
     setProgress(0);
     setDuration(current.duration || 0);
@@ -1809,7 +1844,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             document.hidden ||
             cancelled ||
             currentRef.current?.id !== current.id ||
-            audioContextRef.current
+            audioContextRef.current ||
+            preparedContextRef.current?.state !== "running"
           )
             return;
           const resumeAt = audio.currentTime;
@@ -1819,6 +1855,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           audio.load();
           const upgrade = () => {
             audio.removeEventListener("canplay", upgrade);
+            pendingUpgrade = null;
+            if (cancelled || currentRef.current?.id !== current.id) return;
             setVisualizerReady(Boolean(ensureGraph()));
             if (resumeAt > 1 && Math.abs(audio.currentTime - resumeAt) > 0.4) {
               audio.currentTime = resumeAt;
@@ -1828,6 +1866,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               audio.play().catch(() => undefined);
             }
           };
+          pendingUpgrade = upgrade;
           audio.addEventListener("canplay", upgrade, { once: true });
         });
       }
@@ -1837,6 +1876,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     void startStream();
     return () => {
       cancelled = true;
+      if (pendingUpgrade) audio.removeEventListener("canplay", pendingUpgrade);
       if (startStreamRef.current === startStream) startStreamRef.current = null;
     };
     // The track id is the real trigger; `shouldPlayRef` is consumed above at
@@ -2613,9 +2653,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     let unlockUrl: string | null = null;
     const onGesture = () => {
       const audio = audioRef.current;
-      if (audio) {
-        void audioContextRef.current?.resume().catch(() => {});
-      }
+      if (audio) prepareAudioContext();
       void padContextRef.current?.resume().catch(() => {});
       if (!audio || unlockedRef.current || audio.src) return;
       unlockedRef.current = true;
@@ -2642,14 +2680,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         done();
       }
     };
+    window.addEventListener("click", onGesture, { capture: true });
     window.addEventListener("pointerdown", onGesture, { capture: true });
     window.addEventListener("keydown", onGesture, { capture: true });
     return () => {
+      window.removeEventListener("click", onGesture, true);
       window.removeEventListener("pointerdown", onGesture, true);
       window.removeEventListener("keydown", onGesture, true);
       if (unlockUrl) URL.revokeObjectURL(unlockUrl);
     };
-  }, []);
+  }, [prepareAudioContext]);
 
   const value = useMemo<MusicPlayerValue>(
     () => ({

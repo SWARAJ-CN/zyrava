@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { ShareSongButton } from "@/components/features/music/ShareSongButton";
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Icon } from "@/components/ui/icons";
@@ -219,8 +220,8 @@ function Row({
           const pick = shelf.picks[index];
           const reason = pick?.reason ?? "Sounds similar";
           return (
+            <div key={`${shelf.key}-${song.id}`} className="relative w-28 flex-none">
             <button
-              key={`${shelf.key}-${song.id}`}
               type="button"
               onClick={() => onPlay(songs, label, index)}
               title={`${song.title} — ${reason}`}
@@ -250,6 +251,8 @@ function Row({
               <span className="mt-1.5 block truncate text-[11px] font-semibold text-foreground">{song.title}</span>
               <span className="block truncate text-[10px] text-muted">{reason}</span>
             </button>
+            <ShareSongButton song={song} className="absolute end-0 top-20 bg-black/60 text-white hover:bg-black/80 hover:text-white" />
+            </div>
           );
         })}
       </div>

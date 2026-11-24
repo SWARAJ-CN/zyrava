@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { ShareSongButton } from "@/components/features/music/ShareSongButton";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useCustomization } from "@/components/providers/CustomizationProvider";
 import { CustomizationCredit } from "@/components/features/customization/CustomizationCredit";
@@ -1112,7 +1113,7 @@ export default function MusicPage() {
                       onClick={() => playFromPage(songIndex)}
                       aria-label={`Play ${song.title} by ${song.artist}`}
                       className={cn(
-                        "home-song-row group flex min-h-[68px] w-full items-center gap-3 rounded-lg pe-28 ps-2 py-2 text-start transition-all duration-150 hover:bg-surface-secondary sm:ps-3",
+                        "home-song-row group flex min-h-[68px] w-full items-center gap-3 rounded-lg pe-36 ps-2 py-2 text-start transition-all duration-150 hover:bg-surface-secondary sm:ps-3",
                         active && "bg-accent-soft"
                       )}
                     >
@@ -1163,7 +1164,7 @@ export default function MusicPage() {
                         {renderWave("h-full w-full", "text-brand")}
                       </span>
                     ) : null}
-                    <span className="flex-none text-xs font-medium tabular-nums text-muted-foreground sm:text-[13px]">
+                    <span className="hidden flex-none text-xs font-medium tabular-nums text-muted-foreground sm:block sm:text-[13px]">
                       {formatSeconds(song.duration)}
                     </span>
                     </button>
@@ -1195,6 +1196,7 @@ export default function MusicPage() {
                       >
                         <Icon name="plus" className="size-4" />
                       </button>
+                      <ShareSongButton song={song} />
                       <SaveToDevice song={song} />
                     </div>
                   </div>
@@ -1205,6 +1207,7 @@ export default function MusicPage() {
               const src = song.imageLarge || song.image;
               return (
                 <div key={song.id} className="group relative flex flex-col gap-2.5">
+                  <ShareSongButton song={song} className="absolute bottom-[4.5rem] end-2 z-10 bg-black/60 text-white hover:bg-black/80 hover:text-white" />
                   <button
                     type="button"
                     onClick={() => toggleLike(song)}

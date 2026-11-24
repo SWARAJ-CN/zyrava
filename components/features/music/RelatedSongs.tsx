@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { ShareSongButton } from "@/components/features/music/ShareSongButton";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/icons";
 import { cn } from "@/lib/cn";
@@ -189,6 +190,7 @@ export function RelatedSongs({ song }: { song: Song }) {
                 <span className="flex-none text-[11px] tabular-nums text-faint-foreground">
                   {formatSeconds(pick.song.duration)}
                 </span>
+                <ShareSongButton song={pick.song} />
                 <button
                   type="button"
                   onClick={() => toggleLike(pick.song)}

@@ -70,3 +70,69 @@ test('background queue arrival advances without an animation frame', () => {
   assert.equal(JSON.stringify(p.events), '[["index",10]]');
   assert.equal(p.ctx.pendingEndRef.current, false);
 });
+
+test('suspended or missing audio context never captures audible native playback', () => {
+  for (const context of [null, { state: 'suspended' }, { state: 'closed' }]) {
+    const audio = { volume: 0.7, muted: false };
+    const ensure = vm.runInNewContext(callback('ensureGraph'), {
+      audioRef: { current: audio }, audioContextRef: { current: null },
+      analyserRef: { current: null }, preparedContextRef: { current: context },
+    });
+    assert.equal(ensure(), null);
+    assert.deepEqual(audio, { volume: 0.7, muted: false });
+  }
+});
+
+test('gesture preparation resumes and reuses one context without binding the media element', () => {
+  let created = 0;
+  let resumed = 0;
+  const ctx = {
+    audioContextRef: { current: null }, preparedContextRef: { current: null },
+    window: { AudioContext: class {
+      state = 'suspended';
+      constructor() { created++; }
+      resume() { resumed++; return Promise.resolve(); }
+    } },
+  };
+  const prepare = vm.runInNewContext(callback('prepareAudioContext'), ctx);
+  assert.equal(prepare(), prepare());
+  assert.equal(created, 1);
+  assert.equal(resumed, 2);
+});
+
+function graphHarness(fail = false) {
+  const calls = [];
+  const node = () => ({ gain: { value: 0 }, pan: {}, frequency: {}, connect: () => {}, disconnect: () => {} });
+  const context = {
+    state: 'running', destination: {},
+    createGain: node, createBiquadFilter: node, createAnalyser: node, createChannelSplitter: node,
+    createStereoPanner: () => { if (fail) throw new Error('Unavailable node'); return node(); },
+    createMediaElementSource: () => { calls.push('bound'); return node(); },
+  };
+  const ctx = Object.fromEntries([...callback('ensureGraph').matchAll(/\b(\w+Ref)\b/g)].map(([, name]) => [name, { current: null }]));
+  Object.assign(ctx, {
+    audioRef: { current: { volume: 0.7, muted: false } },
+    preparedContextRef: { current: context },
+    preampDbRef: { current: 0 }, volumeRef: { current: 0.7 }, mutedRef: { current: false },
+    balanceRef: { current: 0 }, loCutRef: { current: false },
+    masterLevel: v => v, appliedVolume: v => v, applyFX: () => {}, applyRouting: () => {},
+  });
+  return { ctx, calls, ensure: vm.runInNewContext(callback('ensureGraph'), ctx) };
+}
+
+test('running gesture-unlocked graph connects once and keeps the master volume', () => {
+  const h = graphHarness();
+  assert.ok(h.ensure());
+  assert.ok(h.ensure());
+  assert.deepEqual(h.calls, ['bound']);
+  assert.equal(h.ctx.masterGainRef.current.gain.value, 0.7);
+  assert.equal(h.ctx.audioRef.current.volume, 1);
+});
+
+test('unsupported graph nodes leave native sound and volume intact', () => {
+  const h = graphHarness(true);
+  assert.equal(h.ensure(), null);
+  assert.deepEqual(h.calls, []);
+  assert.equal(h.ctx.audioRef.current.volume, 0.7);
+  assert.equal(h.ctx.masterGainRef.current, null);
+});

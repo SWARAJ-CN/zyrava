@@ -141,7 +141,7 @@ export function GuestLockProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (!isGuest || PUBLIC_ROUTES.has(pathname)) return;
+    if (!isGuest || PUBLIC_ROUTES.has(pathname) || pathname.startsWith("/song/")) return;
     try {
       if (window.sessionStorage.getItem(LOGIN_MARK) === "1") return;
     } catch {

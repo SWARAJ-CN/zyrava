@@ -110,3 +110,28 @@ test('home defaults to Mix and shuffles across language pools without changing c
   assert.notDeepEqual(mixed, mixFeedPools(pools, () => 0.99));
   assert.deepEqual(mixFeedPools([]), []);
 });
+
+
+test('shared song lookup retrieves the exact id, ignoring a mirror’s unrelated recording', async () => {
+  const calls = [];
+  const api = loader({ bases: 'https://wrong.example/api,https://good.example/api', fetch: async (url) => {
+    const requested = new URL(url);
+    calls.push(requested);
+    if (requested.hostname === 'www.jiosaavn.com') return Response.json({ songs: [] });
+    const songs = requested.hostname === 'wrong.example' ? [raw(remix)] : [raw(original)];
+    return Response.json({ success: true, data: songs });
+  } })('lib/saavn.ts');
+  assert.equal((await api.getSongDetail('original')).id, 'original');
+  assert.ok(calls.some(url => url.pathname === '/api/songs/original'));
+  assert.ok(calls.some(url => url.searchParams.get('pids') === 'original'));
+  assert.ok(calls.every(url => !url.pathname.includes('search')));
+});
+
+test('invalid or missing shared song ids never fall back to another track', async () => {
+  let calls = 0;
+  const api = loader({ fetch: async () => { calls++; return Response.json({ songs: [] }); } })('lib/saavn.ts');
+  assert.equal(await api.getSongDetail('../private'), null);
+  assert.equal(calls, 0);
+  assert.equal(await api.getSongDetail('missing'), null);
+  assert.equal(calls, 1);
+});

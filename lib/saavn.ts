@@ -721,3 +721,33 @@ async function searchSongsOn(
 
   return { songs, total };
 }
+
+
+/** Resolve the exact recording in a shared link; never replace it with a search hit. */
+export async function getSongDetail(id: string): Promise<Song | null> {
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id)) return null;
+  const direct = async (): Promise<Song> => {
+    const payload = await directApi<{ songs?: Record<string, unknown>[] }>({
+      __call: "song.getDetails", pids: id,
+    });
+    const match = payload?.songs?.find((entry) => entry.id === id);
+    const song = match ? toDirectSong(match) : null;
+    if (!song) throw new Error("Song unavailable");
+    return song;
+  };
+  const mirror = async (base: string): Promise<Song> => {
+    const response = await fetch(`${base}/songs/${encodeURIComponent(id)}`, {
+      headers: { Accept: "application/json" }, cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error("Song unavailable");
+    const payload = await response.json() as { data?: Record<string, unknown>[]; success?: boolean };
+    if (payload.success === false || !Array.isArray(payload.data)) throw new Error("Song unavailable");
+    const match = payload.data.find((entry) => entry.id === id);
+    const song = match ? toSong(match) : null;
+    if (!song) throw new Error("Song unavailable");
+    return song;
+  };
+  // A healthy source can answer immediately, even if another mirror is down.
+  return Promise.any([direct(), ...API_BASES.slice(0, 2).map(mirror)]).catch(() => null);
+}

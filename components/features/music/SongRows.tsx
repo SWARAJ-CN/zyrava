@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { ShareSongButton } from "@/components/features/music/ShareSongButton";
 import { Icon } from "@/components/ui/icons";
 import { useLibrary } from "@/components/providers/LibraryProvider";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
@@ -206,6 +207,7 @@ export function SongRows({
             >
               <Icon name="plus" className="size-4" />
             </button>
+            <ShareSongButton song={song} />
             <SaveToDevice song={song} />
           </>
         );
@@ -215,7 +217,7 @@ export function SongRows({
             key={song.id}
             className={cn(
               "home-song-row group flex items-center transition-colors hover:bg-surface-secondary",
-              table ? "gap-3 rounded-lg px-2 py-1.5" : "gap-1 rounded-lg px-2 py-1.5",
+              table ? "gap-1 sm:gap-3 rounded-lg px-2 py-1.5" : "gap-1 rounded-lg px-2 py-1.5",
               table && active && "bg-accent-soft"
             )}
           >
