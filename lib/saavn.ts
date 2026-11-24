@@ -589,7 +589,12 @@ function fetchSearch(source: SearchSource, query: string, page: number) {
 }
 
 async function chooseSearchPlan(query: string, quality: boolean): Promise<SearchPlan> {
-  const sources: SearchSource[] = [...new Set(API_BASES.slice(0, 2)), null];
+  const mirrors = [...new Set(API_BASES.slice(0, 2))];
+  // A mirror can have a different regional catalogue and still return an exact
+  // title recorded by someone else. Prefer the direct catalogue for typed
+  // searches, from the same deployment region as local users (vercel.json).
+  // Mirrors remain fallbacks; browse requests retain their existing order.
+  const sources: SearchSource[] = quality ? [null, ...mirrors] : [...mirrors, null];
   const intent = searchIntent(query);
   const catalogueQuery = quality ? intent.catalogueQuery : query;
   let primary: SearchPlan | undefined;

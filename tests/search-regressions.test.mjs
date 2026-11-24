@@ -47,8 +47,64 @@ test('explicit remixes and instrumentals remain searchable', () => {
   assert.equal(ranker.normalizeSearch('  BÉYONCÉ — Halo! '), 'beyonce halo');
   assert.equal(ranker.searchIntent('Stand by Me').artist, '');
 });
+
+test('La Bouche originals outrank unrelated artists and unrequested club, house and 2023 mixes', () => {
+  const exact = song('la-bouche', 'Be My Lover', 'La Bouche', 'Sweet Dreams');
+  const others = [
+    song('m4tt3rs', 'Be My Lover', 'M4TT3RS, Faber Arena, NFTwentyOne', 'Be My Lover'),
+    song('sans-effort', 'Be My Lover', 'Sans Effort', 'Be My Lover'),
+    song('house', 'Be My Lover (House Mix)', 'La Bouche', 'Sweet Dreams'),
+    song('club', 'Be My Lover (Club Mix)', 'La Bouche', 'All Mixed Up'),
+    song('2023', 'Be My Lover (2023 Mix)', 'Hypaton, David Guetta', 'Be My Lover (2023 Mix)'),
+  ];
+  for (const query of ['La bouche Be My Lover', 'Be My Lover La Bouche', 'Be My Lover by La Bouche']) {
+    assert.equal(ranker.rankSearchResults([...others, exact], query)[0].id, exact.id);
+    assert.ok(ranker.searchRelevance(exact, query).confident);
+    assert.ok(others.every(s => !ranker.searchRelevance(s, query).confident));
+  }
+  // The album can identify a mix even if the upstream title omits the suffix.
+  assert.equal(ranker.searchRelevance(song('hidden-mix', 'Be My Lover', 'La Bouche', 'Be My Lover (House Mix)'), 'Be My Lover').confident, false);
+  assert.equal(ranker.rankSearchResults([exact, ...others], 'Be My Lover House Mix')[0].id, 'house');
+  assert.equal(ranker.rankSearchResults([exact, ...others], 'Be My Lover 2023 Mix')[0].id, '2023');
+});
 function raw(s) { return { id: s.id, name: s.title, artists: { primary: [{ name: s.artist }] }, album: { name: s.album }, duration: s.duration, downloadUrl: [{ quality: '320kbps', url: s.streamUrl }] }; }
 const payload = (songs, total = songs.length) => Response.json({ success: true, data: { results: songs.map(raw), total } });
+
+function directPayload(songs) {
+  const forge = require('node-forge');
+  return Response.json({ total: songs.length, results: songs.map(s => {
+    const cipher = forge.cipher.createCipher('DES-ECB', forge.util.createBuffer('38346591'));
+    cipher.start({ iv: forge.util.createBuffer('00000000') });
+    cipher.update(forge.util.createBuffer(s.streamUrl));
+    cipher.finish();
+    return { id: s.id, title: s.title, more_info: {
+      album: s.album, duration: s.duration,
+      encrypted_media_url: forge.util.encode64(cipher.output.getBytes()),
+      artistMap: { primary_artists: [{ name: s.artist }] },
+    } };
+  }) });
+}
+
+test('typed searches consult the direct catalogue before a mirror with a same-title cover', async () => {
+  const calls = [];
+  const exact = song('la-bouche', 'Be My Lover', 'La Bouche', 'Sweet Dreams');
+  const api = loader({ bases: 'https://limited.example/api', fetch: async url => {
+    calls.push(url.hostname);
+    return url.hostname === 'www.jiosaavn.com' ? directPayload([exact])
+      : payload([song('cover', 'Be My Lover', 'Sans Effort', 'Be My Lover')]);
+  } })('lib/saavn.ts');
+  assert.equal((await api.searchSongs('Be My Lover', 10)).songs[0].artist, 'La Bouche');
+  assert.deepEqual(calls, ['www.jiosaavn.com']);
+  assert.equal((await api.searchSongs('La Bouche Be My Lover', 10)).songs[0].id, exact.id);
+});
+
+test('an empty regional catalogue still consults configured mirrors for the original', async () => {
+  const exact = song('la-bouche', 'Be My Lover', 'La Bouche', 'Sweet Dreams');
+  const api = loader({ bases: 'https://mirror.example/api', fetch: async url =>
+    url.hostname === 'www.jiosaavn.com' ? directPayload([]) : payload([exact]),
+  })('lib/saavn.ts');
+  assert.equal((await api.searchSongs('La Bouche Be My Lover', 10)).songs[0].id, exact.id);
+});
 
 test('a successful but weak mirror response triggers a quality fallback, then keeps that source for pagination', async () => {
   const calls = [];

@@ -6,7 +6,7 @@ export function normalizeSearch(value: string): string {
 }
 
 const VERSIONS = [
-  /\binstrumental\b/, /\bkaraoke\b/, /\bremix(?:ed)?\b/, /\blo fi\b|\blofi\b/,
+  /\binstrumental\b/, /\bkaraoke\b/, /\bremix(?:ed)?\b|\b(?:club|house|dance|extended|dub|\d{4}) mix\b/, /\blo fi\b|\blofi\b/,
   /\bslowed\b/, /\breverb\b/, /\bsped up\b/, /\bcover\b|\btribute\b/,
   /\bvariation\b|\brework\b/, /\blive\b/, /\bacoustic\b/, /\bpiano\b/, /\bringtone\b/,
 ];
