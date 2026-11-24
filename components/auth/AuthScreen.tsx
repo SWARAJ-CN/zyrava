@@ -11,8 +11,7 @@ import { Input } from "@/components/ui/Input";
 import { Icon } from "@/components/ui/icons";
 import { TrendingCarousel } from "@/components/auth/TrendingCarousel";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { EmailAccessFlow } from "./EmailAccessFlow";
-import { ApiError, OtpRequiredError, type EmailChallenge } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { TrendingSlide } from "@/lib/trending";
 
@@ -59,7 +58,6 @@ export function AuthScreen({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [challenge, setChallenge] = useState<EmailChallenge>();
 
   // A signed-in visitor has no business on the auth screens.
   useEffect(() => {
@@ -117,9 +115,7 @@ export function AuthScreen({
       }
       router.replace(nextPath);
     } catch (error) {
-      if (error instanceof OtpRequiredError) {
-        setPassword(""); setChallenge(error.challenge);
-      } else if (error instanceof ApiError) {
+      if (error instanceof ApiError) {
         setFormError(error.message);
         if (error.details?.length) {
           const mapped: Record<string, string> = {};
@@ -141,7 +137,6 @@ export function AuthScreen({
       <span className="text-[11px] font-medium text-danger-soft-foreground">{errors[key]}</span>
     ) : null;
 
-  if (challenge) return <EmailAccessFlow challenge={challenge} onBack={() => setChallenge(undefined)} />;
 
   return (
     <main data-personal-welcome={personalWelcome || undefined} className="relative min-h-dvh overflow-hidden bg-background text-foreground">
@@ -318,7 +313,6 @@ export function AuthScreen({
                 {fieldError("password")}
               </label>
 
-              {!isRegister && (!identifier.trim() || identifier.includes("@")) ? <Link href="/forgot-password" className="text-right text-xs font-semibold text-emerald-400 hover:underline">Forgot password?</Link> : null}
               <label className="flex cursor-pointer items-center gap-2.5 text-xs font-medium text-muted">
                 <input
                   type="checkbox"

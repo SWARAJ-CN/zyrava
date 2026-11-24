@@ -10,7 +10,7 @@ import { LyricsFullscreenOverlay } from "@/components/features/music/FullscreenL
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useGuestLock } from "@/components/providers/GuestLockProvider";
 
-const AUTH_ROUTES = new Set(["/login", "/register", "/forgot-password"]);
+const AUTH_ROUTES = new Set(["/login", "/register"]);
 
 /**
  * The player shell belongs to the music app. It stays unmounted on the account

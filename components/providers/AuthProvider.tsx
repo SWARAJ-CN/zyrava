@@ -14,7 +14,6 @@ import {
 import {
   apiFetch,
   loginRequest,
-  verifyEmailOtpRequest,
   subscribeSessionExpired,
   logoutRequest,
   refreshSession,
@@ -40,7 +39,6 @@ interface AuthContextValue {
   login: (input: LoginInput) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
-  verifyEmailOtp: (challengeId: string, code: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -163,14 +161,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     rememberDevice();
   }, []);
 
-  const verifyEmailOtp = useCallback(async (challengeId: string, code: string) => {
-    const nextUser = await verifyEmailOtpRequest(challengeId, code);
-    setUser(nextUser);
-    setStatus("authenticated");
-    setExpired(false);
-    rememberDevice();
-    rememberPersonalWelcome(nextUser);
-  }, []);
 
   const logout = useCallback(async () => {
     // Leave the private shell immediately; revoking the cookie can happen
@@ -182,8 +172,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout, verifyEmailOtp }),
-    [user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout, verifyEmailOtp]
+    () => ({ user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout }),
+    [user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

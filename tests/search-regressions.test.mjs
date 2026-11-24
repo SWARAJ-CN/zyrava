@@ -95,3 +95,18 @@ test('typed searches do not demote the requested artist for diversity', () => {
   const songs = [instrumental, original, song('second'), song('third')];
   assert.deepEqual(load('lib/recommend.ts').rankSongs(songs, { query: 'The Child in Us by Enigma' }).slice(0,3).map(s => s.id), ['original','second','third']);
 });
+
+test('home defaults to Mix and shuffles across language pools without changing cached results', () => {
+  const { REGIONS } = loader()('components/features/music/regions.ts');
+  const { mixFeedPools } = loader()('lib/feed-mix.ts');
+  assert.equal(REGIONS[0].label, 'Mix');
+  assert.ok(REGIONS[0].queries.length > 1);
+  const pools = [['en1', 'en2', 'en3'], ['hi1', 'hi2'], [], ['ta1', 'ta2']];
+  const before = structuredClone(pools);
+  const mixed = mixFeedPools(pools, () => 0);
+  assert.deepEqual(pools, before);
+  assert.deepEqual([...mixed].sort(), pools.flat().sort());
+  assert.equal(new Set(mixed.slice(0, 3).map((id) => id.slice(0, 2))).size, 3);
+  assert.notDeepEqual(mixed, mixFeedPools(pools, () => 0.99));
+  assert.deepEqual(mixFeedPools([]), []);
+});

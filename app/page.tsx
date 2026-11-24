@@ -30,6 +30,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { VIBES } from "@/components/features/music/filters";
 import { REGIONS } from "@/components/features/music/regions";
 import { rankSongs } from "@/lib/recommend";
+import { mixFeedPools } from "@/lib/feed-mix";
 import { Waveform } from "@/components/features/music/Waveform";
 import { useMusicPlayer } from "@/components/providers/MusicPlayerProvider";
 import { useLibrary } from "@/components/providers/LibraryProvider";
@@ -241,7 +242,11 @@ export default function MusicPage() {
   const toggleLang = (label: string) => {
     pendingRegion.current = null;
     setSelectedLangs((prev) =>
-      prev.includes(label) ? prev.filter((value) => value !== label) : [...prev, label]
+      label === "Mix"
+        ? ["Mix"]
+        : prev.includes(label)
+          ? prev.filter((value) => value !== label)
+          : [...prev.filter((value) => value !== "Mix"), label]
     );
     setBatch(0);
   };
@@ -389,13 +394,15 @@ export default function MusicPage() {
         for (const vibe of activeVibes) {
           // Rooted in the first selected language first, then an open angle,
           // then the remaining languages rooted — all one page deep each.
-          const angles: string[] = [
-            `${activeRegions[0].label.toLowerCase()} ${vibe.queries[0]}`,
-            vibe.queries[1] ?? vibe.queries[0],
-            ...activeRegions
-              .slice(1)
-              .map((candidate) => `${candidate.label.toLowerCase()} ${vibe.queries[0]}`),
-          ];
+          const angles: string[] = activeRegions.some((region) => region.label === "Mix")
+            ? vibe.queries
+            : [
+                `${activeRegions[0].label.toLowerCase()} ${vibe.queries[0]}`,
+                vibe.queries[1] ?? vibe.queries[0],
+                ...activeRegions
+                  .slice(1)
+                  .map((candidate) => `${candidate.label.toLowerCase()} ${vibe.queries[0]}`),
+              ];
           for (const query of angles.slice(0, 6)) {
             combos.push({ query, page: firstPage + batch });
           }
@@ -465,10 +472,12 @@ export default function MusicPage() {
               (candidate) => candidate.label
             )
           : activeRegions.map((candidate) => candidate.label);
-        const selected = rankSongs(dedupeSongs(usableByPosition.flat()), {
+        const isMix = !freeText && activeRegions.some((region) => region.label === "Mix");
+        const pooled = isMix ? mixFeedPools(usableByPosition) : usableByPosition.flat();
+        const selected = rankSongs(dedupeSongs(pooled), {
           query: freeText,
           vibes: activeVibes,
-          regionLabels,
+          regionLabels: isMix ? [] : regionLabels,
         }).slice(0, pageSize);
 
         // The catalogue had nothing at this visit's opening spot — an unusual

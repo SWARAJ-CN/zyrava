@@ -1,8 +1,4 @@
-/**
- * The regions the library can open with. Selecting a region loads its own
- * catalogue from the music API, so the home screen always starts with the
- * sound of a language rather than one global mix.
- */
+/** Language catalogues, starting with a shuffled multilingual home feed. */
 export interface Region {
   /** Display name, also the queue label used by the player. */
   label: string;
@@ -15,6 +11,12 @@ export interface Region {
 }
 
 export const REGIONS: Region[] = [
+  {
+    label: "Mix",
+    queries: ["top english hits", "hindi songs", "tamil songs", "malayalam songs"],
+    hint: "A fresh mix of languages",
+    tone: "var(--chart-1)",
+  },
   {
     label: "Malayalam",
     queries: ["malayalam songs"],
