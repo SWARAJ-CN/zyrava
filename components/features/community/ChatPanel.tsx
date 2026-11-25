@@ -1,13 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, CheckCheck } from "lucide-react";
+import Image from "next/image";
+import { Input, Tabs } from "@heroui/react";
+import { MessageBubble } from "./MessageBubble";
+import { MessageActions, ConversationActions } from "./ChatActions";
+import { MessageComposer } from "./MessageComposer";
+import { MoreVertical, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/Button";
+import { ImagePreview } from "@/components/ui/ImagePreview";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useCommunity } from "@/components/providers/CommunityProvider";
-import { MAX_CHAT_MESSAGE, type ChatPerson, type MessageItem } from "@/lib/community";
+import { type ChatPerson, type MessageItem } from "@/lib/community";
 
 type Rail = "threads" | "people" | "requests";
 
@@ -30,12 +36,6 @@ function Presence({ online, size = "md" }: { online: boolean; size?: "sm" | "md"
 
 function initials(name: string): string {
   return name.trim().slice(0, 1).toUpperCase() || "?";
-}
-
-function formatTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function formatStamp(value: string): string {
@@ -65,13 +65,15 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function Avatar({ person }: { person: ChatPerson }) {
+function Avatar({ person, preview = true }: { person: ChatPerson; preview?: boolean }) {
   return (
     <span className="relative flex-none">
-      <span className="grid size-11 place-items-center rounded-2xl bg-accent-soft text-sm font-semibold text-foreground">
-        {initials(person.name)}
-      </span>
-      <span className="absolute -bottom-0.5 -end-0.5 rounded-full bg-background p-[2px]">
+      {person.avatarUrl && preview ? <ImagePreview src={person.avatarUrl} alt={`${person.name}’s profile photo`} title={`${person.name}’s photo`} label={`View ${person.name}’s photo`} width={600} height={600} className="size-11 overflow-hidden rounded-2xl bg-accent-soft">
+        <Image loading="eager" src={person.avatarUrl} alt="" width={88} height={88} className="size-full object-cover" />
+      </ImagePreview> : <span className="grid size-11 place-items-center rounded-2xl bg-accent-soft text-sm font-semibold text-foreground">
+        {person.avatarUrl ? <Image loading="eager" src={person.avatarUrl} alt="" width={88} height={88} className="size-11 rounded-2xl object-cover" /> : initials(person.name)}
+      </span>}
+      <span className="pointer-events-none absolute -bottom-0.5 -end-0.5 rounded-full bg-background p-[2px]">
         <Presence online={person.online} size="sm" />
       </span>
     </span>
@@ -80,8 +82,7 @@ function Avatar({ person }: { person: ChatPerson }) {
 
 /**
  * The community room: who asked to talk, the threads you have, and everyone
- * else on the dock. Text only by design — the app is for listening, and a plain
- * thread is the one thing nobody has to moderate.
+ * else on the dock, with signed media attachments scoped to accepted threads.
  */
 export function ChatPanel() {
   const { user } = useAuth();
@@ -106,14 +107,21 @@ export function ChatPanel() {
     searchPeople,
     selectConversation,
     loadOlder,
+    revealMessage,
     sendText,
-    retryMessage,
+    retryMessage, changeMessage, clearChat, blockChat,
     askToChat,
     respondTo,
     reportTyping,
     reportTypingStop,
   } = useCommunity();
 
+  const [optionsFor, setOptionsFor] = useState<{ id: string; anchor: HTMLElement } | null>(null);
+  const [threadOptions, setThreadOptions] = useState<{ id: string; anchor: HTMLElement } | null>(null);
+  const threadMenuButton = useRef<HTMLButtonElement>(null);
+  const [reply, setReply] = useState<MessageItem | null>(null);
+  const selectedMessage = messages.find(message => message.id === optionsFor?.id);
+  const replyTarget = reply?.conversationId === activeId ? messages.find(message => message.id === reply.id && !message.deleted) ?? null : null;
   const [rail, setRail] = useState<Rail>("threads");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const draftKey = user && activeId ? `${user.id}:${activeId}` : null;
@@ -126,10 +134,50 @@ export function ChatPanel() {
   const pinnedRef = useRef(true);
   const previousThreadRef = useRef<string | null>(null);
   const olderAnchorRef = useRef<{ height: number; top: number } | null>(null);
-  const [sending, setSending] = useState(false);
   const [askBusy, setAskBusy] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const scrollingToReply = useRef(false);
+  const jumpController = useRef<AbortController | null>(null);
+  const pendingJump = useRef<{ id: string; conversationId: string } | null>(null);
+  const highlight = useRef<{ node: HTMLElement; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const [jumpStatus, setJumpStatus] = useState<{ conversationId: string; loading: boolean; error?: string } | null>(null);
+  useEffect(() => () => {
+    jumpController.current?.abort(); pendingJump.current = null; scrollingToReply.current = false;
+    if (highlight.current) { clearTimeout(highlight.current.timer); highlight.current.node.removeAttribute("data-reply-highlight"); }
+  }, [activeId, chatOpen]);
+
+  const jumpToReply = async (messageId: string) => {
+    if (!activeId) return;
+    jumpController.current?.abort();
+    const controller = new AbortController(); jumpController.current = controller;
+    pendingJump.current = { id: messageId, conversationId: activeId };
+    scrollingToReply.current = true; pinnedRef.current = false; olderAnchorRef.current = null;
+    setJumpStatus({ conversationId: activeId, loading: true });
+    try {
+      const found = await revealMessage(messageId, controller.signal);
+      if (controller.signal.aborted) return;
+      if (!found) { scrollingToReply.current = false; pendingJump.current = null; setJumpStatus(null); return; }
+      setJumpStatus({ conversationId: activeId, loading: false });
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      scrollingToReply.current = false; pendingJump.current = null;
+      setJumpStatus({ conversationId: activeId, loading: false, error: cause instanceof Error ? cause.message : "Couldn't find the original message." });
+    }
+  };
+  useEffect(() => {
+    const jump = pendingJump.current;
+    const scroll = scrollRef.current;
+    if (!jump || jump.conversationId !== activeId || !scroll) return;
+    const target = Array.from(scroll.querySelectorAll<HTMLElement>("[data-message-id]")).find(node => node.dataset.messageId === jump.id);
+    if (!target) return;
+    pendingJump.current = null;
+    if (highlight.current) { clearTimeout(highlight.current.timer); highlight.current.node.removeAttribute("data-reply-highlight"); }
+    const box = target.getBoundingClientRect(); const viewport = scroll.getBoundingClientRect();
+    scroll.scrollTo({ top: Math.max(0, scroll.scrollTop + box.top - viewport.top - Math.max(16, (scroll.clientHeight - box.height) / 2)), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+    target.focus({ preventScroll: true }); target.setAttribute("data-reply-highlight", "true");
+    highlight.current = { node: target, timer: setTimeout(() => { target.removeAttribute("data-reply-highlight"); scrollingToReply.current = false; }, 2200) };
+  }, [activeId, messages, jumpStatus]);
 
   // Native dialog contains focus and leaves the audio player mounted behind it.
   useEffect(() => {
@@ -169,6 +217,7 @@ export function ChatPanel() {
     const node = scrollRef.current;
     if (!node) return;
     const anchor = olderAnchorRef.current;
+    if (scrollingToReply.current) return;
     if (previousThreadRef.current !== activeId) {
       node.scrollTop = node.scrollHeight;
       pinnedRef.current = true;
@@ -182,21 +231,8 @@ export function ChatPanel() {
 
   const onScroll = useCallback(() => {
     const node = scrollRef.current;
-    if (node) pinnedRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100;
+    if (node && !scrollingToReply.current) pinnedRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100;
   }, []);
-
-  const submit = useCallback(async () => {
-    const text = draft.trim();
-    if (!text || sending) return;
-    setSending(true);
-    const delivered = await sendText(text);
-    setSending(false);
-    if (delivered) {
-      setDraft("");
-      reportTypingStop();
-    }
-    composerRef.current?.focus();
-  }, [draft, sending, sendText, reportTypingStop, setDraft]);
 
   const typingLabel = useMemo(() => {
     if (!typingUsers.length) return null;
@@ -240,9 +276,9 @@ export function ChatPanel() {
     <div className="community-shell flex h-full min-h-0 flex-col">
       {/* Head */}
       <header className="community-header flex min-h-20 flex-none items-center gap-3 border-b border-dock-line px-4 py-3 sm:px-6">
-        <button type="button" onClick={closeChat} aria-label="Back to music" className="grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-secondary text-foreground transition-colors hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent">
+        <Button variant="secondary" size="icon" onClick={closeChat} aria-label="Back to music" className="size-11 shrink-0 rounded-2xl text-foreground hover:bg-accent-soft">
           <Icon name="chevron-right" className="size-5 rotate-180" />
-        </button>
+        </Button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-lg font-bold leading-tight tracking-tight text-foreground">
             Community
@@ -277,13 +313,12 @@ export function ChatPanel() {
             activeId ? "hidden" : "flex"
           )}
         >
-          <div className="community-tabs mx-4 mb-2 mt-4 flex flex-none gap-1 rounded-2xl bg-surface-secondary p-1.5">
+          <Tabs selectedKey={rail} onSelectionChange={key => setRail(key as Rail)} className="min-h-0 flex-1 gap-0">
+          <Tabs.List aria-label="Community sections" className="community-tabs mx-4 mb-2 mt-4 flex w-auto flex-none self-stretch gap-1 rounded-2xl bg-surface-secondary p-1.5">
             {(["threads", "people", "requests"] as Rail[]).map((entry) => (
-              <button
+              <Tabs.Tab
                 key={entry}
-                type="button"
-                onClick={() => setRail(entry)}
-                aria-pressed={rail === entry}
+                id={entry}
                 className={cn(
                   "min-h-11 flex-1 rounded-xl px-2 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-accent",
                   rail === entry
@@ -295,11 +330,11 @@ export function ChatPanel() {
                 {railCounts[entry] ? (
                   <span className="ms-1.5 tabular-nums">{railCounts[entry]}</span>
                 ) : null}
-              </button>
+              </Tabs.Tab>
             ))}
-          </div>
+          </Tabs.List>
 
-          <div className="dock-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-3">
+          <Tabs.Panel id={rail} className="dock-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-3">
             {rail === "people" ? (
               <div className="flex flex-col gap-2">
                 <label className="relative block">
@@ -308,7 +343,7 @@ export function ChatPanel() {
                     className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
                     strokeWidth={1.9}
                   />
-                  <input
+                  <Input
                     type="search"
                     value={peopleQuery}
                     onChange={(event) => searchPeople(event.target.value)}
@@ -425,25 +460,25 @@ export function ChatPanel() {
               <div className="flex flex-col gap-1">
                 <label className="relative mb-4 block">
                   <Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-                  <input type="search" value={threadQuery} onChange={(event) => setThreadQuery(event.target.value)} placeholder="Search your chats" aria-label="Search your chats" className="h-12 w-full rounded-xl border border-dock-line bg-surface-secondary/40 ps-10 pe-3 text-sm outline-none focus:border-brand" />
+                  <Input type="search" value={threadQuery} onChange={(event) => setThreadQuery(event.target.value)} placeholder="Search your chats" aria-label="Search your chats" className="h-12 w-full rounded-xl border border-dock-line bg-surface-secondary/40 ps-10 pe-3 text-sm outline-none focus:border-brand" />
                 </label>
                 <SectionTitle>Your conversations</SectionTitle>
                 {conversations.length > 0 && !conversations.some((thread) => thread.user.name.toLowerCase().includes(threadQuery.trim().toLowerCase())) ? <p className="px-3 py-6 text-sm text-muted">No chats match “{threadQuery}”.</p> : null}
                 {conversations.length ? (
                   conversations.filter((thread) => thread.user.name.toLowerCase().includes(threadQuery.trim().toLowerCase())).map((thread) => (
-                    <button
+                    <Button
                       key={thread.id}
-                      type="button"
+                      variant="ghost"
                       onClick={() => selectConversation(thread.id)}
                       aria-current={activeId === thread.id || undefined}
                       className={cn(
-                        ROW,
+                        ROW, "h-auto justify-start whitespace-normal",
                         activeId === thread.id
                           ? "bg-accent-soft text-foreground ring-1 ring-inset ring-accent/20"
                           : "text-muted hover:bg-dock-hover hover:text-foreground"
                       )}
                     >
-                      <Avatar person={thread.user} />
+                      <Avatar person={thread.user} preview={false} />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-2">
                           <span className="min-w-0 flex-1 truncate font-semibold text-foreground">
@@ -468,17 +503,18 @@ export function ChatPanel() {
                           )}
                         </span>
                       </span>
-                    </button>
+                    </Button>
                   ))
                 ) : (
                   <p className="px-2.5 py-6 text-[12px] text-muted">
                     Your next conversation starts here.
-                    <button type="button" onClick={() => setRail("people")} className="mx-auto mt-4 block rounded-xl bg-accent px-5 py-3 font-semibold text-accent-foreground">Find people</button>
+                    <Button onClick={() => setRail("people")} className="mx-auto mt-4 rounded-xl px-5">Find people</Button>
                   </p>
                 )}
               </div>
             ) : null}
-          </div>
+          </Tabs.Panel>
+          </Tabs>
         </section>
 
         {/* Thread */}
@@ -491,14 +527,14 @@ export function ChatPanel() {
           {activeConversation ? (
             <>
               <header className="flex flex-none items-center gap-3 border-b border-dock-line bg-background/90 px-4 py-4 sm:px-6">
-                <button
-                  type="button"
+                <Button
+                  variant="ghost" size="icon"
                   onClick={() => selectConversation(null)}
                   aria-label="Back to the list"
                   className="grid size-9 flex-none place-items-center rounded-lg text-muted transition-colors hover:bg-dock-hover hover:text-foreground md:hidden"
                 >
                   <Icon name="chevron-right" className="size-4 rotate-180" strokeWidth={2} />
-                </button>
+                </Button>
                 <Avatar person={activeConversation.user} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] font-semibold text-foreground">
@@ -518,66 +554,30 @@ export function ChatPanel() {
                           : "Offline")}
                   </p>
                 </div>
+                <Button ref={threadMenuButton} variant="ghost" size="icon" aria-label="Chat options" aria-haspopup="menu" aria-expanded={threadOptions?.id === activeConversation.id} onClick={() => { setOptionsFor(null); setThreadOptions(current => current?.id === activeConversation.id || !threadMenuButton.current ? null : { id: activeConversation.id, anchor: threadMenuButton.current }); }} className="shrink-0 rounded-full"><MoreVertical className="size-5" /></Button>
               </header>
 
+              {jumpStatus?.conversationId === activeId && (jumpStatus.loading || jumpStatus.error) ? <div className="flex flex-none items-center gap-2 border-b border-dock-line bg-surface-secondary px-4 py-2 text-xs text-muted">
+                {jumpStatus.loading ? <Loader2 className="size-3.5 animate-spin" /> : null}<p role={jumpStatus.error ? "alert" : "status"} className="flex-1">{jumpStatus.error || "Finding the original message…"}</p><Button variant="ghost" size="icon" aria-label={jumpStatus.loading ? "Cancel finding original message" : "Dismiss reply message notice"} onClick={() => { jumpController.current?.abort(); pendingJump.current = null; scrollingToReply.current = false; setJumpStatus(null); }} className="size-7 rounded-full hover:bg-background"><X className="size-3.5" /></Button>
+              </div> : null}
               <div
                 ref={scrollRef}
                 onScroll={onScroll}
+                style={{ overflowAnchor: "none" }}
                 className="community-messages min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-8"
               >
-                {messages.length ? <div className="mb-4 flex justify-center"><button type="button" disabled={olderLoading} onClick={() => {
+                {messages.length ? <div className="mb-4 flex justify-center"><Button variant="secondary" size="sm" disabled={olderLoading || jumpStatus?.conversationId === activeId && jumpStatus.loading} onClick={() => {
                   const node = scrollRef.current;
                   if (node) olderAnchorRef.current = { height: node.scrollHeight, top: node.scrollTop };
                   loadOlder();
-                }} className="rounded-full bg-surface-secondary px-4 py-2 text-xs font-medium text-muted hover:text-foreground disabled:opacity-50">{olderLoading ? "Loading…" : "Earlier messages"}</button></div> : null}
+                }} className="rounded-full px-4 text-xs font-medium text-muted hover:text-foreground">{olderLoading ? "Loading…" : "Earlier messages"}</Button></div> : null}
                 {grouped.map((group) => (
                   <div key={group.day} className="flex flex-col gap-2.5">
                     <p className="py-2 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-faint-foreground">
                       {group.day}
                     </p>
-                    {group.rows.map((message) => (
-                      <div
-                        key={message.id}
-                        className={cn("flex", message.mine ? "justify-end" : "justify-start")}
-                      >
-                        <div
-                          className={cn(
-                            "max-w-[min(34rem,86%)] rounded-2xl px-3.5 py-2.5",
-                            message.mine
-                              ? "rounded-br-md bg-accent text-accent-foreground"
-                              : "rounded-bl-md border border-dock-line bg-background text-foreground"
-                          )}
-                        >
-                          <p className="whitespace-pre-wrap break-words text-[13.5px] leading-relaxed">
-                            {message.text}
-                          </p>
-                          <p
-                            className={cn(
-                              "mt-1 flex items-center justify-end gap-1.5 text-[10px]",
-                              message.mine ? "text-accent-foreground/75" : "text-faint-foreground"
-                            )}
-                          >
-                            {formatTime(message.createdAt)}
-                            {message.pending ? (
-                              <span>sending…</span>
-                            ) : message.failed ? (
-                              <button
-                                type="button"
-                                onClick={() => retryMessage(message.clientId)}
-                                className="font-semibold text-danger underline underline-offset-2"
-                              >
-                                failed — retry
-                              </button>
-                            ) : message.mine ? (
-                              <span className="inline-flex items-center gap-1 font-medium" aria-label={message.seen ? "Seen" : "Sent"}>
-                                {message.seen ? <CheckCheck className="size-3.5" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
-                                {message.seen ? "Seen" : "Sent"}
-                              </span>
-                            ) : null}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                    {group.rows.map(message => <MessageBubble key={message.id} message={message} currentUserId={user?.id ?? ""} name={activeConversation.user.name}
+                      optionsOpen={optionsFor?.id === message.id} onReplyJump={id => void jumpToReply(id)} onOptions={anchor => { setThreadOptions(null); setOptionsFor(current => current?.id === message.id ? null : { id: message.id, anchor }); }} onRetry={() => retryMessage(message.clientId)} onMediaLoad={() => { const node = scrollRef.current; if (node && pinnedRef.current) node.scrollTop = node.scrollHeight; }} />)}
                   </div>
                 ))}
                 {!messages.length && !loading ? (
@@ -587,46 +587,11 @@ export function ChatPanel() {
                 ) : null}
               </div>
 
-              <footer className="community-composer flex-none border-t border-dock-line bg-background px-4 py-3 sm:px-6">
-                <div className="flex items-end gap-2">
-                  <textarea
-                    ref={composerRef}
-                    value={draft}
-                    rows={1}
-                    maxLength={MAX_CHAT_MESSAGE}
-                    aria-label={`Message to ${activeConversation.user.name}`}
-                    placeholder="Write a message…"
-                    onChange={(event) => {
-                      setDraft(event.target.value.slice(0, MAX_CHAT_MESSAGE));
-                      reportTyping();
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                        event.preventDefault();
-                        void submit();
-                      }
-                    }}
-                    className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-dock-line bg-surface-secondary/50 px-4 py-3 text-base leading-relaxed text-foreground outline-none transition-colors placeholder:text-faint-foreground focus:border-brand"
-                  />
-                  <Button
-                    size="icon"
-                    onClick={() => void submit()}
-                    disabled={!draft.trim()}
-                    loading={sending}
-                    title="Send"
-                  >
-                    <Icon name="send" className="size-4" strokeWidth={2.1} />
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between px-1 pt-1.5 text-[10px] text-faint-foreground">
-                  <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
-                  {draft.length > MAX_CHAT_MESSAGE - 200 ? (
-                    <span className="tabular-nums">
-                      {draft.length}/{MAX_CHAT_MESSAGE}
-                    </span>
-                  ) : null}
-                </div>
-              </footer>
+              {activeConversation.messagingDisabled ? <div className="flex-none border-t border-dock-line p-4 text-center text-sm text-muted">{activeConversation.blockedByMe ? <>You blocked this user. <Button variant="ghost" size="sm" onClick={() => { if (threadMenuButton.current) setThreadOptions({ id: activeConversation.id, anchor: threadMenuButton.current }); }} className="font-semibold text-accent underline">Manage block</Button></> : "Messaging is unavailable in this conversation."}</div> : <MessageComposer key={draftKey} conversationId={activeConversation.id} name={activeConversation.user.name}
+                draft={draft} setDraft={setDraft} reply={replyTarget} onCancelReply={() => setReply(null)} onSend={async (text, attachment) => { const target = replyTarget; setReply(null); return sendText(text, attachment, target ?? undefined); }} onTyping={reportTyping} onStopTyping={reportTypingStop} />}
+              {selectedMessage && optionsFor ? <MessageActions key={selectedMessage.id} anchor={optionsFor.anchor} message={selectedMessage} currentUserId={user?.id ?? ""} disabled={!!activeConversation.messagingDisabled}
+                onReply={() => { setReply(selectedMessage); setOptionsFor(null); }} onChange={action => changeMessage(selectedMessage, action)} onClose={() => setOptionsFor(null)} /> : null}
+              {threadOptions?.id === activeConversation.id ? <ConversationActions key={activeConversation.id} anchor={threadOptions.anchor} conversation={activeConversation} onBlock={blocked => blockChat(activeConversation.id, blocked)} onClear={async () => { await clearChat(activeConversation.id); setReply(null); }} onClose={() => setThreadOptions(null)} /> : null}
             </>
           ) : (
             <div className="hidden flex-1 flex-col items-center justify-center gap-3 px-6 text-center md:flex">

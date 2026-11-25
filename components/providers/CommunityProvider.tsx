@@ -10,12 +10,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { loadReplyHistory } from "@/lib/community-reply-navigation";
+import type { MediaAttachment } from "@/lib/media";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { createOnlineNoticeGate, ONLINE_NOTICE, OPEN_COMMUNITY_MESSAGE, showOnlineSystemNotice } from "@/lib/community-online-notice";
 import { createMessageChime } from "@/lib/message-chime";
-import { mergeMessage, applyReadReceipt } from "@/lib/community-messages";
+import { mergeMessage, applyReadReceipt, applyMessageChange, removeMessage } from "@/lib/community-messages";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
+  mutateMessage, clearConversation, blockConversation, type MessageAction,
   MAX_CHAT_MESSAGE,
   fetchConversations,
   fetchMessages,
@@ -88,7 +91,11 @@ interface CommunityContextValue {
   searchPeople: (query: string) => void;
   selectConversation: (conversationId: string | null) => void;
   loadOlder: () => void;
-  sendText: (text: string) => Promise<boolean>;
+  revealMessage: (messageId: string, signal: AbortSignal) => Promise<boolean>;
+  sendText: (text: string, attachment?: MediaAttachment, reply?: MessageItem) => Promise<boolean>;
+  changeMessage: (message: MessageItem, action: MessageAction) => Promise<void>;
+  clearChat: (conversationId: string) => Promise<void>;
+  blockChat: (conversationId: string, blocked: boolean) => Promise<void>;
   retryMessage: (clientId: string) => void;
   askToChat: (userId: string) => Promise<void>;
   respondTo: (requestId: string, accept: boolean) => Promise<void>;
@@ -152,6 +159,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
   const [people, setPeople] = useState<ChatPerson[]>([]);
   const [peopleQuery, setPeopleQuery] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
+  const visibilityVersion = useRef<Record<string, number>>({});
   const [messagesByConversation, setMessagesByConversation] = useState<MessageMap>({});
   const [olderLoading, setOlderLoading] = useState(false);
   const [typingPairs, setTypingPairs] = useState<Record<string, string[]>>({});
@@ -263,17 +271,19 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     };
   }, [ready, chatOpen, currentId, viewActiveId, viewMessageMap, connected, receiveReadReceipt]);
 
-  // Refresh persisted receipts after reopening, reconnecting, or returning from
-  // the background. Merge with pushes so late HTTP responses cannot undo Seen.
+  // Reload the visible page after reconnecting so cleared/hidden messages do
+  // not reappear from a stale tab cache. Preserve local sends awaiting retry.
   useEffect(() => {
     if (!ready || !chatOpen || !viewActiveId) return;
     const owner = currentId;
     let disposed = false;
     const refresh = () => {
       if (document.hidden) return;
+      const version = visibilityVersion.current[viewActiveId] ?? 0;
+      const requestedAt = Date.now();
       void fetchMessages(viewActiveId).then((rows) => {
-        if (disposed || userIdRef.current !== owner) return;
-        setMessagesFor(viewActiveId, (list) => rows.reduce((merged, row) => mergeMessage(merged, { ...row, seen: row.seen || seenIdsRef.current.has(row.id) }), list)
+        if (disposed || userIdRef.current !== owner || version !== (visibilityVersion.current[viewActiveId] ?? 0)) return;
+        setMessagesFor(viewActiveId, (list) => rows.reduce((merged, row) => mergeMessage(merged, { ...row, seen: row.seen || seenIdsRef.current.has(row.id) }), list.filter(item => item.pending || item.failed || new Date(item.createdAt).getTime() > requestedAt || rows.some(row => row.id === item.id && (item.revision ?? 0) > (row.revision ?? 0))))
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
       }).catch((cause: Error) => {
         if (!disposed) setError(cause?.message ?? "That thread will not open.");
@@ -388,13 +398,28 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
             if (messageSoundEnabledRef.current) messageChimeRef.current?.play();
             toast.toast({
               title: thread?.user.name ?? "A listener",
-              description: message.text.slice(0, 120),
+              description: message.text.slice(0, 120) || (message.attachment ? `Sent ${message.attachment.kind === "image" ? "a photo" : message.attachment.kind === "video" ? "a video" : "audio"}` : "New message"),
               variant: "info",
             });
           }
         }
       })
     );
+
+    off.push(onCommunityEvent("message:changed", payload => {
+      const { message } = payload as { message: MessageItem };
+      setMessagesFor(message.conversationId, list => applyMessageChange(list, message));
+    }));
+    off.push(onCommunityEvent("message:removed", payload => {
+      const { conversationId, messageId } = payload as { conversationId: string; messageId: string };
+      visibilityVersion.current[conversationId] = (visibilityVersion.current[conversationId] ?? 0) + 1;
+      setMessagesFor(conversationId, list => removeMessage(list, messageId));
+    }));
+    off.push(onCommunityEvent("conversation:cleared", payload => {
+      const { conversationId, clearedAt } = payload as { conversationId: string; clearedAt: string };
+      visibilityVersion.current[conversationId] = (visibilityVersion.current[conversationId] ?? 0) + 1;
+      setMessagesFor(conversationId, list => list.filter(message => message.pending || message.failed || new Date(message.createdAt) > new Date(clearedAt)));
+    }));
 
     off.push(
       onCommunityEvent("conversation:new", (payload) => {
@@ -649,9 +674,11 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     if (!firstReal) return;
 
     setOlderLoading(true);
+    const owner = userIdRef.current;
+    const version = visibilityVersion.current[activeId] ?? 0;
     fetchMessages(activeId, firstReal.createdAt)
       .then((older) => {
-        if (!older.length) return;
+        if (!older.length || owner !== userIdRef.current || version !== (visibilityVersion.current[activeId] ?? 0)) return;
         setMessagesFor(activeId, (current) => {
           const known = new Set(current.map((item) => item.id));
           return [...older.filter((item) => !known.has(item.id)).map((item) => ({ ...item, seen: item.seen || seenIdsRef.current.has(item.id) })), ...current];
@@ -661,10 +688,24 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       .finally(() => setOlderLoading(false));
   }, [activeId, olderLoading, messagesByConversation, setMessagesFor]);
 
+  const revealMessage = useCallback(async (messageId: string, signal: AbortSignal) => {
+    if (!activeId || !currentId || signal.aborted) return false;
+    const conversationId = activeId;
+    const owner = currentId;
+    const version = visibilityVersion.current[conversationId] ?? 0;
+    const isCurrent = () => !signal.aborted && userIdRef.current === owner && activeIdRef.current === conversationId && version === (visibilityVersion.current[conversationId] ?? 0);
+    const rows = await loadReplyHistory(messageId, messagesByConversation[conversationId] ?? [], before => fetchMessages(conversationId, before), isCurrent);
+    if (!rows || !isCurrent()) return false;
+    if (rows.length) setMessagesFor(conversationId, list => rows.reduce((merged, row) => mergeMessage(merged, { ...row, seen: row.seen || seenIdsRef.current.has(row.id) }), list)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+    return true;
+  }, [activeId, currentId, messagesByConversation, setMessagesFor]);
+
   const deliver = useCallback(
-    async (conversationId: string, text: string, clientId: string) => {
+    async (conversationId: string, text: string, clientId: string, attachment?: MediaAttachment, replyTo?: string) => {
       try {
-        const saved = await postMessage(conversationId, text, clientId);
+        const saved = await postMessage(conversationId, text, clientId, attachment?.id, replyTo);
+        setError(null);
         setMessagesFor(conversationId, (current) => mergeMessage(current, { ...saved, pending: false, seen: saved.seen || seenIdsRef.current.has(saved.id) }));
         return true;
       } catch (cause) {
@@ -679,9 +720,9 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
   );
 
   const sendText = useCallback(
-    async (raw: string) => {
+    async (raw: string, attachment?: MediaAttachment, reply?: MessageItem) => {
       const text = raw.trim().slice(0, MAX_CHAT_MESSAGE);
-      if (!text || !activeId || !currentId) return false;
+      if ((!text && !attachment) || !activeId || !currentId) return false;
 
       const clientId = newClientId();
       setMessagesFor(activeId, (current) => [
@@ -691,6 +732,8 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
           conversationId: activeId,
           from: currentId,
           text,
+          attachment,
+          reply: reply ? { id: reply.id, from: reply.from, text: reply.text, kind: reply.attachment?.kind ?? null, deleted: false } : null,
           clientId,
           createdAt: new Date().toISOString(),
           mine: true,
@@ -700,7 +743,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
 
       emitTyping(activeId, false);
       lastTypingSent.current = 0;
-      return deliver(activeId, text, clientId);
+      return deliver(activeId, text, clientId, attachment, reply?.id);
     },
     [activeId, currentId, deliver, setMessagesFor]
   );
@@ -715,10 +758,33 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
           item.clientId === clientId ? { ...item, pending: true, failed: false } : item
         )
       );
-      void deliver(activeId, failed.text, clientId);
+      void deliver(activeId, failed.text, clientId, failed.attachment ?? undefined, failed.reply?.id);
     },
     [activeId, deliver, messagesByConversation, setMessagesFor]
   );
+
+  const changeMessage = useCallback(async (message: MessageItem, action: MessageAction) => {
+    const owner = userIdRef.current;
+    const result = await mutateMessage(message.conversationId, message.id, action);
+    if (owner !== userIdRef.current) return;
+    if (result.removed) visibilityVersion.current[message.conversationId] = (visibilityVersion.current[message.conversationId] ?? 0) + 1;
+    setMessagesFor(message.conversationId, list => result.removed ? removeMessage(list, message.id) : result.message ? applyMessageChange(list, result.message) : list);
+    if (owner) void refreshThreads(owner).catch(() => undefined);
+  }, [setMessagesFor, refreshThreads]);
+  const clearChat = useCallback(async (conversationId: string) => {
+    const owner = userIdRef.current;
+    const result = await clearConversation(conversationId);
+    if (owner !== userIdRef.current) return;
+    visibilityVersion.current[conversationId] = (visibilityVersion.current[conversationId] ?? 0) + 1;
+    setMessagesFor(conversationId, list => list.filter(message => message.pending || message.failed || new Date(message.createdAt) > new Date(result.clearedAt)));
+    if (owner) void refreshThreads(owner).catch(() => undefined);
+  }, [setMessagesFor, refreshThreads]);
+  const blockChat = useCallback(async (conversationId: string, blocked: boolean) => {
+    const owner = userIdRef.current;
+    const { conversation } = await blockConversation(conversationId, blocked);
+    if (owner !== userIdRef.current) return;
+    setConversations(list => list.map(item => item.id === conversationId ? conversation : item));
+  }, []);
 
   const askToChat = useCallback(async (targetId: string) => {
     const result = await sendChatRequest(targetId);
@@ -814,8 +880,10 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       searchPeople,
       selectConversation,
       loadOlder,
+      revealMessage,
       sendText,
       retryMessage,
+      changeMessage, clearChat, blockChat,
       askToChat,
       respondTo,
       reportTyping,
@@ -836,10 +904,12 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       peopleQuery,
       ready,
       retryMessage,
+      changeMessage, clearChat, blockChat,
       searchPeople,
       selectConversation,
       sendText,
       loadOlder,
+      revealMessage,
       askToChat,
       respondTo,
       reportTyping,

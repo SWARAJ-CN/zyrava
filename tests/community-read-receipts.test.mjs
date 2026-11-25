@@ -52,3 +52,17 @@ test('foreground chat acknowledges incoming unread IDs once, including on return
  await new Promise(resolve=>setImmediate(resolve));assert.equal(f.ctx.readInFlightRef.current.size,0);
  f.cleanup();
 });
+
+test('older acknowledgements cannot overwrite edited text or deleted-message tombstones',()=>{
+ const edited={...outgoing,text:'Edited',revision:2,editedAt:'2026-11-25'};
+ assert.equal(mergeMessage([edited],{...outgoing,revision:0})[0].text,'Edited');
+ const deleted={...edited,text:'',deleted:true,revision:3};
+ assert.equal(mergeMessage([deleted],edited)[0].deleted,true);
+});
+test('message mutations update reply excerpts without resurrecting cleared messages',()=>{
+ const reply={...incoming,id:'reply',reply:{id:'out',from:'sender',text:'Hello',kind:null,deleted:false}};
+ const updated=exports.applyMessageChange([reply],{...outgoing,text:'Changed',revision:1});
+ assert.equal(updated.length,1);assert.equal(updated[0].reply.text,'Changed');
+ const removed=exports.removeMessage([outgoing,reply],'out');
+ assert.equal(removed.length,1);assert.equal(removed[0].reply.deleted,true);assert.equal(removed[0].reply.text,'');
+});

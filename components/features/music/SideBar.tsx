@@ -39,7 +39,7 @@ type DockTab = "browse" | "library" | "dashboard" | "mixer";
  * `chat` is not a shelf of the dock — it is the door to the community room,
  * which draws over the page like the console does, so it never lands in `tab`.
  */
-type DockEntry = DockTab | "chat" | "customize" | "payments" | "support";
+type DockEntry = DockTab | "chat" | "customize" | "payments" | "support" | "settings";
 
 const TABS: Array<{
   value: DockEntry;
@@ -54,6 +54,7 @@ const TABS: Array<{
   { value: "mixer", label: "Mixer", icon: "sliders", group: "Studio" },
   { value: "customize", label: "Customize", icon: "sparkles", group: "For you" },
   { value: "support", label: "Buy A Mug", icon: "heart", group: "For you" },
+  { value: "settings", label: "Settings", icon: "sliders", group: "For you" },
   { value: "payments", label: "Payments", icon: "list", group: "For you" },
 ];
 
@@ -112,7 +113,8 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
   const customizeOpen = pathname === "/customize";
   const paymentsOpen = pathname === "/payments";
   const supportOpen = pathname === "/support";
-  const accountPageOpen = customizeOpen || paymentsOpen || supportOpen;
+  const settingsOpen = pathname === "/settings";
+  const accountPageOpen = customizeOpen || paymentsOpen || supportOpen || settingsOpen;
   const [heavyPending, setHeavyPending] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [playlistName, setPlaylistName] = useState("");
@@ -265,8 +267,8 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
           wide ? "gap-1 px-3 pb-4 pt-1" : "items-center gap-1 px-2 py-3"
         )}
       >
-        {TABS.filter((entry) => !personalExperience || entry.value === "browse" || entry.value === "library").map((entry, entryIndex, entries) => {
-          const active = entry.value === "support" ? supportOpen : entry.value === "payments" ? paymentsOpen : entry.value === "customize" ? customizeOpen : entry.value === "chat" ? chatOpen : !chatOpen && !accountPageOpen && tab === entry.value;
+        {TABS.filter((entry) => !personalExperience || entry.value === "browse" || entry.value === "library" || entry.value === "settings").map((entry, entryIndex, entries) => {
+          const active = entry.value === "settings" ? settingsOpen : entry.value === "support" ? supportOpen : entry.value === "payments" ? paymentsOpen : entry.value === "customize" ? customizeOpen : entry.value === "chat" ? chatOpen : !chatOpen && !accountPageOpen && tab === entry.value;
           const badge=entry.value==="customize"?customizations.incoming.length:entry.value==="chat"?chatBadge:0;
           return (
             <Fragment key={entry.value}>
@@ -282,7 +284,7 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
               onClick={() => {
                 /* The community room is an overlay, not another shelf — it never
                    takes the dock's own tab state with it. */
-                if (entry.value === "customize" || entry.value === "payments" || entry.value === "support") {
+                if (entry.value === "customize" || entry.value === "payments" || entry.value === "support" || entry.value === "settings") {
                   if (!requireAuth("tab")) return;
                   router.push(`/${entry.value}`);
                   if (mobile) setMobileNavOpen(false);
@@ -353,7 +355,7 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
           {accountPageOpen && tab === "browse" ? (
             <div className="px-2.5 py-2">
               <SectionLabel>Your listening room</SectionLabel>
-              <p className="text-xs leading-relaxed text-muted">{supportOpen ? "A little support helps keep Zyrava growing. Every contribution is optional." : paymentsOpen ? "Review your payments, their status, and what each checkout was for." : "Create a look, review designs made for you, or manage your saved customizations."}</p>
+              <p className="text-xs leading-relaxed text-muted">{settingsOpen ? "Update your profile photo and make your conversations feel more personal." : supportOpen ? "A little support helps keep Zyrava growing. Every contribution is optional." : paymentsOpen ? "Review your payments, their status, and what each checkout was for." : "Create a look, review designs made for you, or manage your saved customizations."}</p>
               <button type="button" className="mt-4 text-xs font-semibold text-brand" onClick={() => { router.push("/"); if (mobile) setMobileNavOpen(false); }}>Back to music</button>
             </div>
           ) : null}
@@ -819,7 +821,7 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
                     aria-hidden
                     className="grid size-7 flex-none place-items-center rounded-full bg-accent-soft text-[10px] font-bold uppercase text-brand"
                   >
-                    {accountInitial}
+                    {user.avatarUrl ? <Image src={user.avatarUrl} alt="" width={72} height={72} className="size-full rounded-full object-cover" /> : accountInitial}
                   </span>
                   <span
                     className="min-w-0 max-w-[8rem] truncate text-xs font-semibold text-foreground"
@@ -886,7 +888,7 @@ function DockBody({ wide, mobile, onSignOut }: { wide: boolean; mobile: boolean;
                   title={accountName}
                   className="grid size-9 place-items-center rounded-full bg-accent-soft text-[11px] font-bold uppercase text-brand"
                 >
-                  {accountInitial}
+                  {user.avatarUrl ? <Image src={user.avatarUrl} alt="" width={72} height={72} className="size-full rounded-full object-cover" /> : accountInitial}
                 </span>
                 <DockIcon label="Sign out" onClick={onSignOut}>
                   <Icon name="log-out" className="size-4" strokeWidth={1.9} />

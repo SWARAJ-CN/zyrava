@@ -2218,6 +2218,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     });
   }, [clearRecovery, recoverPlayback]);
 
+  useEffect(() => {
+    const pauseForChat = () => pausePlayback();
+    window.addEventListener("zyrava:media-focus", pauseForChat);
+    return () => window.removeEventListener("zyrava:media-focus", pauseForChat);
+  }, [pausePlayback]);
+
   const togglePlay = useCallback(() => {
     if (audioRef.current?.paused) playPlayback();
     else pausePlayback();

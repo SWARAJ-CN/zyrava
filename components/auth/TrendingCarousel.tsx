@@ -40,7 +40,7 @@ export function TrendingCarousel({
 
     Promise.all(
       QUERIES.map((query) =>
-        fetch(`/api/music/search?q=${encodeURIComponent(query)}&limit=6`, { cache: "no-store" })
+        fetch(`/api/music/search?q=${encodeURIComponent(query)}&limit=6&mode=browse`, { cache: "no-store" })
           .then((response) => (response.ok ? response.json() : null))
           .catch(() => null)
       )
@@ -238,17 +238,21 @@ export function TrendingCarousel({
       {bleed("50vw")}
       <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-background/20" />
 
-      <div className="relative flex h-full flex-col p-7">
+      <div className="relative flex h-full flex-col p-7 lg:p-10">
+        <div className="max-w-sm">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">Find your next favourite</p>
+          <h2 className="mt-3 text-3xl font-semibold leading-tight tracking-tight">A little space.<br />A lot of good music.</h2>
+        </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-7 py-8">
           <div className="relative aspect-square w-full max-w-[24rem] overflow-hidden rounded-[1.4rem] border border-white/10 bg-surface-secondary shadow-pop">
             {artwork("384px", "size-10")}
           </div>
-          <p
-            className="line-clamp-2 max-w-[26rem] text-balance text-center text-xl font-semibold leading-snug tracking-tight text-foreground"
-            aria-live="polite"
-          >
-            {current?.title ?? ""}
-          </p>
+          <div className="max-w-[26rem] text-center">
+            <p className="line-clamp-2 text-balance text-xl font-semibold leading-snug tracking-tight text-foreground">
+              {current?.title ?? "Your next favourite is out there."}
+            </p>
+            <p className="mt-2 line-clamp-2 text-sm text-muted">{current?.artist ?? "Discover it on ZYRAVA."}</p>
+          </div>
         </div>
 
         <div className="flex items-center justify-center gap-4">

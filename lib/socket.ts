@@ -20,6 +20,9 @@ const MAX_AUTH_RETRIES = 3;
 
 export type CommunityEvent =
   | "message:new"
+  | "message:changed"
+  | "message:removed"
+  | "conversation:cleared"
   | "conversation:new"
   | "conversation:update"
   | "conversation:read"

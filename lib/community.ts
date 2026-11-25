@@ -10,6 +10,7 @@
  * websocket is down: only the other tab's live update waits for a reconnect.
  */
 
+import type { MediaAttachment } from "./media";
 import { ApiError, apiFetch } from "@/lib/api";
 
 export const MAX_CHAT_MESSAGE = 2000;
@@ -17,6 +18,7 @@ export const MAX_CHAT_MESSAGE = 2000;
 export interface ChatPerson {
   id: string;
   name: string;
+  avatarUrl?: string | null;
   lastSeenAt: string | null;
   online: boolean;
   /** Only set on the discover list. */
@@ -26,16 +28,27 @@ export interface ChatPerson {
 export interface ConversationItem {
   id: string;
   user: ChatPerson;
+  blockedByMe?: boolean;
+  messagingDisabled?: boolean;
   lastMessage: { text: string; from: string; at: string } | null;
   unread: number;
   updatedAt: string;
 }
 
+export interface MessageReply { id: string; from: string; text: string; kind: "image" | "video" | "audio" | null; deleted: boolean }
+export const CHAT_REACTIONS = ["❤️", "😂", "😮", "👍"] as const;
+export const CHAT_EDIT_WINDOW = 20 * 60 * 1000;
 export interface MessageItem {
   id: string;
   conversationId: string;
   from: string;
   text: string;
+  attachment?: MediaAttachment | null;
+  reply?: MessageReply | null;
+  editedAt?: string | null;
+  deleted?: boolean;
+  revision?: number;
+  reactions?: Array<{ userId: string; emoji: string }>;
   clientId: string;
   createdAt: string;
   mine: boolean;
@@ -113,11 +126,13 @@ export async function respondToRequest(
 export async function postMessage(
   conversationId: string,
   text: string,
-  clientId: string
+  clientId: string,
+  attachmentId?: string,
+  replyTo?: string
 ): Promise<MessageItem> {
   const payload = await apiFetch<{ message: MessageItem }>("/api/community/message", {
     method: "POST",
-    body: { conversationId, text, clientId },
+    body: { conversationId, text, clientId, attachmentId, replyTo },
   });
   return payload.message;
 }
@@ -142,4 +157,16 @@ export async function markConversationRead(conversationId: string, messageIds: s
 export function newClientId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export type MessageAction = { action: "edit"; text: string } | { action: "delete"; scope: "me" | "everyone" } | { action: "react"; emoji: string | null };
+export function mutateMessage(conversationId: string, messageId: string, change: MessageAction) {
+  const { action, ...values } = change;
+  return apiFetch<{ message?: MessageItem; removed?: boolean; messageId?: string }>(`/api/community/message/${action}`, { method: "POST", body: { conversationId, messageId, ...values } });
+}
+export function clearConversation(conversationId: string) {
+  return apiFetch<{ conversationId: string; clearedAt: string }>("/api/community/clear", { method: "POST", body: { conversationId } });
+}
+export function blockConversation(conversationId: string, blocked: boolean) {
+  return apiFetch<{ conversation: ConversationItem }>("/api/community/block", { method: "POST", body: { conversationId, blocked } });
 }

@@ -39,6 +39,7 @@ interface AuthContextValue {
   login: (input: LoginInput) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
+  updateProfile: (uploadId: string | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -171,9 +172,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await logoutRequest().catch(() => undefined);
   }, []);
 
+  const updateProfile = useCallback(async (uploadId: string | null) => {
+    const result = await apiFetch<{ user: AuthUser }>("/api/profile/avatar", { method: "POST", body: { uploadId } });
+    setUser(current => current?.id === result.user.id ? result.user : current);
+  }, []);
+
   const value = useMemo(
-    () => ({ user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout }),
-    [user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout]
+    () => ({ user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout, updateProfile }),
+    [user, status, expired, personalExperience, personalThemeEnabled, returningPersonalEmail, login, register, logout, updateProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
